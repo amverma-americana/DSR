@@ -107,7 +107,7 @@ public class DsrEntryService(
             /*  No duplicate check. Multiple entries against the SAME project on the SAME date are
                 deliberately allowed (timesheet style: API Development 4h, Unit Testing 2h,
                 Bug Fixing 1h all against Project A). The daily total is the only limit.        */
-            await EnsureDailyHoursCapAsync(targetUserId, request.WorkDate, request.EstimatedHours, null, ct);
+            await EnsureHoursCapAsync(targetUserId, request.WorkDate, request.ProjectId, request.EstimatedHours, null, ct);
         }
 
         var sanitizedHtml = html.Sanitize(request.WorkDescriptionHtml);
@@ -196,7 +196,7 @@ public class DsrEntryService(
             await ValidateProjectAsync(request.ProjectId.Value, entry.WorkDate, ct);
 
             // Duplicate project on the same date is permitted; only the daily total is enforced.
-            await EnsureDailyHoursCapAsync(entry.UserId, entry.WorkDate, request.EstimatedHours, id, ct);
+            await EnsureHoursCapAsync(entry.UserId, entry.WorkDate, request.ProjectId, request.EstimatedHours, id, ct);
 
             entry.ProjectId = request.ProjectId;
             entry.EstimatedHours = request.EstimatedHours;
@@ -564,18 +564,25 @@ public class DsrEntryService(
     }
 
     /// <summary>
-    /// THE ONLY LIMIT ON A DAY.
+    /// HOURS LIMITS.
     ///
-    /// Since multiple entries per project are allowed, nothing else constrains how many rows an
-    /// employee may add. The cap is the EMPLOYEE'S OWN <see cref="User.StandardDailyHours"/>, not a
-    /// global setting, so a part-time employee on 6 hours is capped at 6 while a full-time
-    /// colleague is capped at 8.
+    /// Primary rule: <c>StandardDailyHours</c> is the cap PER PROJECT PER DAY, not per day overall.
+    /// An employee on 8 standard hours may log up to 8 hours against Project A and a further 8
+    /// against Project B on the same date, in as many separate entries as they like. The cap is the
+    /// employee's own <see cref="User.StandardDailyHours"/>, so a part-timer on 6 is capped at 6
+    /// per project while a colleague on 8 is capped at 8.
     ///
-    /// Rule: TotalLoggedHours + NewEntryHours &lt;= StandardDailyHours.
-    /// Excludes the entry being edited so an in-place update does not count itself twice.
+    ///     ProjectHoursAlreadyLogged + NewEntryHours &lt;= StandardDailyHours
+    ///
+    /// Secondary guard: the day's TOTAL across all projects may still not exceed the configurable
+    /// AppSettings key DSR.MaxDailyHours (default 24). Without it, N projects would permit
+    /// 8 * N hours in one day and nothing would stop a 40-hour Tuesday. This is a physical-sanity
+    /// ceiling, not the business rule.
+    ///
+    /// Both exclude the entry being edited, so an in-place update never counts itself twice.
     /// Mirrored by trg_DSREntries_DailyRules, which is the last line of defence.
     /// </summary>
-    private async Task EnsureDailyHoursCapAsync(int userId, DateOnly workDate, decimal newHours, int? excludeEntryId, CancellationToken ct)
+    private async Task EnsureHoursCapAsync(int userId, DateOnly workDate, int? projectId, decimal newHours, int? excludeEntryId, CancellationToken ct)
     {
         var standardDailyHours = await uow.Users.Query()
             .Where(u => u.Id == userId)
@@ -584,19 +591,41 @@ public class DsrEntryService(
 
         if (standardDailyHours <= 0) standardDailyHours = 8m;   // defensive: never cap at zero
 
-        var existingHours = await uow.DsrEntries.Query()
+        // ---- Primary: per project, per day ---------------------------------------------------
+        if (projectId.HasValue)
+        {
+            var projectHours = await uow.DsrEntries.Query()
+                .Where(e => e.UserId == userId && e.WorkDate == workDate && e.ProjectId == projectId
+                            && e.IsActive && (excludeEntryId == null || e.Id != excludeEntryId))
+                .SumAsync(e => (decimal?)e.EstimatedHours, ct) ?? 0m;
+
+            var projectTotal = projectHours + newHours;
+            if (projectTotal > standardDailyHours)
+            {
+                var projectName = await uow.Projects.Query()
+                    .Where(p => p.Id == projectId).Select(p => p.ProjectName).FirstOrDefaultAsync(ct) ?? "this project";
+
+                throw new BusinessRuleException(
+                    $"Hours for '{projectName}' on {workDate:dd MMM yyyy} would be {projectTotal:0.##}, which exceeds the " +
+                    $"limit of {standardDailyHours:0.##} hour(s) per project per day. {projectHours:0.##} hour(s) are " +
+                    $"already logged against this project, so you have {Math.Max(0, standardDailyHours - projectHours):0.##} " +
+                    $"hour(s) remaining for it. You can still log time against a different project.");
+            }
+        }
+
+        // ---- Secondary: absolute ceiling for the whole day ------------------------------------
+        var maxDailyHours = await settings.GetDecimalAsync(SettingKeys.MaxDailyHours, 24m, ct);
+
+        var dayHours = await uow.DsrEntries.Query()
             .Where(e => e.UserId == userId && e.WorkDate == workDate && e.IsActive
                         && (excludeEntryId == null || e.Id != excludeEntryId))
             .SumAsync(e => (decimal?)e.EstimatedHours, ct) ?? 0m;
 
-        var total = existingHours + newHours;
-        if (total <= standardDailyHours) return;
-
-        var remaining = Math.Max(0, standardDailyHours - existingHours);
-        throw new BusinessRuleException(
-            $"Total hours for {workDate:dd-MMM-yyyy} would be {total:0.##}, which exceeds the standard daily limit of " +
-            $"{standardDailyHours:0.##} hour(s). {existingHours:0.##} hour(s) are already logged, so you have " +
-            $"{remaining:0.##} hour(s) remaining for this date.");
+        var dayTotal = dayHours + newHours;
+        if (dayTotal > maxDailyHours)
+            throw new BusinessRuleException(
+                $"Total hours for {workDate:dd MMM yyyy} would be {dayTotal:0.##} across all projects, which exceeds the " +
+                $"maximum of {maxDailyHours:0.##} hour(s) a day. {dayHours:0.##} hour(s) are already logged.");
     }
 
     /// <summary>

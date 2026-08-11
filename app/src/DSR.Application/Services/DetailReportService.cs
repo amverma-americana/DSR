@@ -345,13 +345,21 @@ public class DetailReportService(
         filter.PageSize = 20000;
 
         var report = await GetDetailReportAsync(filter, ct);
-        var stamp = clock.TodayUtc.ToString("yyyyMMdd");
+
+        // Project roll-up for the same filter, so the workbook answers "which projects, and how
+        // many hours" without the reader having to pivot the detail sheet themselves.
+        var byProject = await GetGroupedReportAsync("project", filter, ct);
+
+        // Name the file after the period so downloads from different date ranges do not collide.
+        var stamp = filter.FromDate.HasValue && filter.ToDate.HasValue
+            ? $"{filter.FromDate:yyyyMMdd}_to_{filter.ToDate:yyyyMMdd}"
+            : clock.TodayUtc.ToString("yyyyMMdd");
 
         return format.ToLowerInvariant() switch
         {
             "xlsx" or "excel" => ($"DSR_Detail_Report_{stamp}.xlsx",
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                BuildWorkbook(report)),
+                BuildWorkbook(report, byProject, filter)),
 
             "csv" => ($"DSR_Detail_Report_{stamp}.csv", "text/csv", BuildCsv(report)),
 
@@ -359,8 +367,12 @@ public class DetailReportService(
         };
     }
 
-    /// <summary>Two sheets: the detail rows, and the summary totals for the same filter.</summary>
-    private static byte[] BuildWorkbook(DsrDetailReportDto report)
+    /// <summary>
+    /// Three sheets for the same filter: the detail rows (project, task and hours per entry),
+    /// a project roll-up, and the summary totals. The applied date range is stamped on the
+    /// summary sheet so a saved file always says which period it covers.
+    /// </summary>
+    private static byte[] BuildWorkbook(DsrDetailReportDto report, IReadOnlyList<GroupedReportRowDto> byProject, DsrDetailReportFilter filter)
     {
         using var workbook = new XLWorkbook();
         var sheet = workbook.Worksheets.Add("DSR Details");
@@ -422,11 +434,52 @@ public class DetailReportService(
         if (r > 2) sheet.Range(1, 1, r - 1, headers.Length).SetAutoFilter();
         sheet.Columns().AdjustToContents(1, 40D, 55D);
 
-        // Summary sheet -- same filter, whole-set totals.
+        /* ---- Sheet 2: project roll-up (project, tasks logged against it, hours) ------------- */
+        var proj = workbook.Worksheets.Add("By Project");
+        string[] projHeaders = ["Project", "Code / Status", "Task entries", "Contributors", "Days", "Hours logged", "Estimated hours", "Avg hours/day", "Share %"];
+        for (var c = 0; c < projHeaders.Length; c++) proj.Cell(1, c + 1).Value = projHeaders[c];
+
+        proj.Row(1).Style.Font.Bold = true;
+        proj.Row(1).Style.Fill.BackgroundColor = XLColor.FromHtml("#1b4f8a");
+        proj.Row(1).Style.Font.FontColor = XLColor.White;
+        proj.SheetView.FreezeRows(1);
+
+        var pr = 2;
+        foreach (var g in byProject)
+        {
+            proj.Cell(pr, 1).Value = g.GroupName;
+            proj.Cell(pr, 2).Value = g.GroupSubtitle;
+            proj.Cell(pr, 3).Value = g.EntryCount;
+            proj.Cell(pr, 4).Value = g.EmployeeCount;
+            proj.Cell(pr, 5).Value = g.DaysLogged;
+            proj.Cell(pr, 6).Value = g.TotalHoursLogged;
+            proj.Cell(pr, 7).Value = g.TotalEstimatedHours;
+            proj.Cell(pr, 8).Value = g.AverageHoursPerDay;
+            proj.Cell(pr, 9).Value = g.SharePct;
+            pr++;
+        }
+
+        if (pr > 2)
+        {
+            // Total row, so the sheet reconciles to the detail sheet at a glance.
+            proj.Cell(pr, 1).Value = "TOTAL";
+            proj.Cell(pr, 3).FormulaA1 = $"SUM(C2:C{pr - 1})";
+            proj.Cell(pr, 6).FormulaA1 = $"SUM(F2:F{pr - 1})";
+            proj.Cell(pr, 7).FormulaA1 = $"SUM(G2:G{pr - 1})";
+            proj.Row(pr).Style.Font.Bold = true;
+            proj.Range(1, 1, pr - 1, projHeaders.Length).SetAutoFilter();
+        }
+
+        foreach (var col in new[] { 6, 7, 8, 9 }) proj.Column(col).Style.NumberFormat.Format = "0.00";
+        proj.Columns().AdjustToContents(1, 40D, 55D);
+
+        /* ---- Sheet 3: summary totals ------------------------------------------------------- */
         var s = workbook.Worksheets.Add("Summary");
         var summary = report.Summary;
         (string Label, object Value)[] stats =
         [
+            ("Date from", filter.FromDate?.ToString("dd-MMM-yyyy") ?? "(all)"),
+            ("Date to", filter.ToDate?.ToString("dd-MMM-yyyy") ?? "(all)"),
             ("Total entries", summary.TotalEntries),
             ("Employees", summary.EmployeeCount),
             ("Projects", summary.ProjectCount),

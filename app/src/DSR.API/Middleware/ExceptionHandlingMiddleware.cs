@@ -22,6 +22,7 @@ public class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Exception
     private const int DailyHoursCapExceeded = 51001;
     private const int NoWorkDoneConflict = 51002;
     private const int ProjectWindowViolation = 51003;
+    private const int WholeDayCeilingExceeded = 51004;
     private const int AuditLogImmutable = 51010;
     private const int LoginAuditImmutable = 51011;
 
@@ -103,7 +104,10 @@ public class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Exception
         return sql.Number switch
         {
             DailyHoursCapExceeded => (HttpStatusCode.UnprocessableEntity,
-                "Total hours for this date exceed the employee's standard daily hours.", null),
+                "Hours for a single project on this date exceed the employee's standard daily hours.", null),
+
+            WholeDayCeilingExceeded => (HttpStatusCode.UnprocessableEntity,
+                "Total hours for this date across all projects exceed the configured daily maximum.", null),
 
             NoWorkDoneConflict => (HttpStatusCode.UnprocessableEntity,
                 "A 'No Work Done' declaration cannot coexist with other DSR entries on the same date.", null),

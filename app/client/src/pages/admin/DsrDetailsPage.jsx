@@ -164,6 +164,15 @@ export default function DsrDetailsPage() {
                 <TextField label="DSR to" type="date" fullWidth size="small" InputLabelProps={{ shrink: true }}
                   value={filter.toDate} onChange={set('toDate')} />
               </Grid>
+              {/* ---------------------------------------------------------------------------
+                  HIDDEN BY REQUEST. Submitted-date range, and the min/max hours band.
+
+                  Commented out rather than deleted: the API still accepts every one of these
+                  parameters (submittedFromDate, submittedToDate, minHours, maxHours) and the
+                  filter state still carries the keys, so re-enabling a field is purely a matter
+                  of uncommenting the block below. Nothing server-side needs to change.
+                  --------------------------------------------------------------------------- */}
+              {/*
               <Grid item xs={6} sm={4} md={2}>
                 <TextField label="Submitted from" type="date" fullWidth size="small" InputLabelProps={{ shrink: true }}
                   value={filter.submittedFromDate} onChange={set('submittedFromDate')} />
@@ -180,6 +189,7 @@ export default function DsrDetailsPage() {
                 <TextField label="Max hours" type="number" fullWidth size="small"
                   value={filter.maxHours} onChange={set('maxHours')} inputProps={{ min: 0, step: 0.5 }} />
               </Grid>
+              */}
 
               <Grid item xs={12} sm={6} md={2}>
                 <TextField select label="Employee" fullWidth size="small" value={filter.userId} onChange={set('userId')}>
@@ -187,9 +197,13 @@ export default function DsrDetailsPage() {
                   {employees.map((e) => <MenuItem key={e.id} value={e.id}>{e.name}</MenuItem>)}
                 </TextField>
               </Grid>
+              {/* HIDDEN BY REQUEST: Employee code. Still searchable via the free-text Search box,
+                  which matches employee code as well as name, email, project and task. */}
+              {/*
               <Grid item xs={12} sm={6} md={2}>
                 <TextField label="Employee code" fullWidth size="small" value={filter.employeeCode} onChange={set('employeeCode')} />
               </Grid>
+              */}
               <Grid item xs={12} sm={6} md={2}>
                 <TextField select label="Department" fullWidth size="small" value={filter.departmentId} onChange={set('departmentId')}>
                   <MenuItem value="">All departments</MenuItem>
@@ -208,13 +222,22 @@ export default function DsrDetailsPage() {
                   {projects.map((p) => <MenuItem key={p.id} value={p.id}>{p.projectName}</MenuItem>)}
                 </TextField>
               </Grid>
+              {/* ---------------------------------------------------------------------------
+                  HIDDEN BY REQUEST: Work category, DSR status, No work done, AI usage.
+
+                  Note the dedicated tabs still cover two of these without a filter control:
+                    * "No Work Done" tab  -> forces isNoWorkDone = true server-side
+                    * "Approval Status" tab -> breaks the population down by DSR status
+                  The API continues to accept workCategoryId, statusCode, isNoWorkDone and
+                  isAiUsed, so uncommenting restores each control with no server change.
+                  --------------------------------------------------------------------------- */}
+              {/*
               <Grid item xs={12} sm={6} md={2}>
                 <TextField select label="Work category" fullWidth size="small" value={filter.workCategoryId} onChange={set('workCategoryId')}>
                   <MenuItem value="">All categories</MenuItem>
                   {categories.map((c) => <MenuItem key={c.id} value={c.id}>{c.categoryName}</MenuItem>)}
                 </TextField>
               </Grid>
-
               <Grid item xs={12} sm={6} md={2}>
                 <TextField select label="DSR status" fullWidth size="small" value={filter.statusCode} onChange={set('statusCode')}>
                   <MenuItem value="">Any status</MenuItem>
@@ -235,6 +258,7 @@ export default function DsrDetailsPage() {
                   <MenuItem value="false">No AI</MenuItem>
                 </TextField>
               </Grid>
+              */}
               <Grid item xs={12} md={4}>
                 <TextField label="Search" fullWidth size="small"
                   placeholder="Employee name, code, email, project or task description"
