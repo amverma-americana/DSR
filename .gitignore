@@ -1,0 +1,73 @@
+##############################################################################
+# DSR & Resource Management System
+##############################################################################
+
+# ---------------------------------------------------------------- .NET build
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+*.user
+*.suo
+*.userprefs
+*.dll
+*.pdb
+*.cache
+project.assets.json
+*.nuget.dgspec.json
+*.nuget.g.props
+*.nuget.g.targets
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.swp
+
+# ------------------------------------------------------------------ Node/Vite
+node_modules/
+dist/
+dist-ssr/
+.vite/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ------------------------------------------------------------------- Runtime
+logs/
+*.log
+
+# ------------------------------------------------------------------- SECRETS
+#
+# appsettings.json IS committed: it holds placeholders only
+# ("REPLACE-THIS-WITH-A-32-BYTE-MINIMUM-SECRET-FROM-A-SECRET-STORE").
+#
+# Environment-specific overrides are NOT committed, because they hold real
+# connection strings and JWT signing keys. Copy the .example file and fill it in.
+appsettings.Development.json
+appsettings.Production.json
+appsettings.Staging.json
+appsettings.*.local.json
+.env
+.env.local
+.env.*.local
+*.pfx
+*.p12
+secrets.json
+
+# ------------------------------------------------------------------ Artefacts
+*.xlsx
+*.csv
+!app/database/**/*.csv
+publish/
+TestResults/
+coverage/
+*.trx
+
+# --------------------------------------------------------------------- OS
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store

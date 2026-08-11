@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json.schemastore.org/launchsettings.json",
+
+  /*
+    Ports are PINNED here on purpose.
+
+    `dotnet run` reads applicationUrl from this file and it takes precedence over the
+    ASPNETCORE_URLS environment variable. The SDK will auto-generate this file with random ports
+    (e.g. 52399/52400) if it is absent, which silently breaks two things that depend on a known
+    port: the Vite dev proxy in client/vite.config.js and the Cors:AllowedOrigins entry in
+    appsettings.json. Keep 5199 in step with both.
+  */
+  "profiles": {
+    "DSR.API": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "launchUrl": "swagger",
+      "applicationUrl": "http://localhost:5199",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "dotnetRunMessages": true
+    },
+
+    "DSR.API (https)": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "launchUrl": "swagger",
+      "applicationUrl": "https://localhost:7199;http://localhost:5199",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "dotnetRunMessages": true
+    },
+
+    "IIS Express": {
+      "commandName": "IISExpress",
+      "launchBrowser": true,
+      "launchUrl": "swagger",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    }
+  },
+
+  "iisSettings": {
+    "windowsAuthentication": false,
+    "anonymousAuthentication": true,
+    "iisExpress": {
+      "applicationUrl": "http://localhost:5199",
+      "sslPort": 0
+    }
+  }
+}

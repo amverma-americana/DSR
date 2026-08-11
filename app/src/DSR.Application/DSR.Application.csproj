@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      AutoMapper 15.1.3, deliberately pinned.
+
+      SECURITY: GHSA-rvv3-g6hj-g44x (HIGH, DoS via uncontrolled recursion) affects everything
+      below 15.1.1, which includes 13.0.1 and 14.0.0. 15.1.1 is the first patched release on this
+      line. Do not downgrade for licensing reasons; that reintroduces a high severity advisory.
+      Versions 16.0.0 through 16.1.0 are also affected, patched again in 16.1.1.
+
+      LICENCE, REQUIRES A PROCUREMENT DECISION: AutoMapper changed to a commercial licence from
+      15.0.0. It remains free below a published revenue threshold, but above that a paid licence is
+      needed. Confirm with legal or procurement. If the licence is unacceptable the mitigation is
+      cheap here: nothing in this solution actually calls IMapper, because every read path uses
+      explicit LINQ projections so EF translates them to SQL. MappingProfile and this package
+      reference can therefore be deleted outright with no functional change.
+
+      It ships its own AddAutoMapper DI extension, so the legacy
+      AutoMapper.Extensions.Microsoft.DependencyInjection package must NOT be added alongside it
+      or the extension method becomes ambiguous.
+    -->
+    <PackageReference Include="AutoMapper" Version="15.1.3" />
+    <PackageReference Include="ClosedXML" Version="0.104.2" />
+    <PackageReference Include="FluentValidation" Version="11.10.0" />
+    <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="11.10.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
+    <!-- 9.2.995: latest stable. Do NOT downgrade to 8.2.871-beta, which carries a known
+         moderate-severity advisory (GHSA-j92c-7v7g-gj3f) and is the component guarding stored XSS. -->
+    <PackageReference Include="HtmlSanitizer" Version="9.2.995" />
+
+    <!--
+      EF Core is referenced for its async LINQ operators (ToListAsync/SumAsync/CountAsync) used by
+      the service layer against the IQueryable exposed by IRepository. This is the EF abstraction
+      only: no SQL Server provider, no DbContext and no migration assembly is referenced here.
+      Reimplementing async operators behind a bespoke interface would buy purity at the cost of
+      hand written plumbing, so the provider boundary is drawn at Infrastructure instead.
+    -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DSR.Domain\DSR.Domain.csproj" />
+  </ItemGroup>
+</Project>

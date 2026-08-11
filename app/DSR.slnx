@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/DSR.API/DSR.API.csproj" />
+    <Project Path="src/DSR.Application/DSR.Application.csproj" />
+    <Project Path="src/DSR.Domain/DSR.Domain.csproj" />
+    <Project Path="src/DSR.Infrastructure/DSR.Infrastructure.csproj" />
+  </Folder>
+</Solution>
