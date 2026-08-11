@@ -84,6 +84,18 @@ export default function DsrDetailsPage() {
     setLoading(true);
     setError(null);
     setSelected([]);
+
+    /*  Clear the rows before fetching.
+
+        Each tab renders a DIFFERENT row shape: the grouped tabs expect groupName/sharePct, the
+        detail tabs expect employeeName/userId, and Missing DSR expects missingDayCount. Because
+        `active.key` changes the instant the tab is clicked but `data` was only replaced after the
+        await resolved, the new tab briefly rendered the OLD tab's rows against its own columns --
+        producing blank cells and a literal "undefined%" in the share column. Dropping the rows
+        first means a tab shows a spinner rather than someone else's data.                        */
+    setData(null);
+    setSummary(null);
+
     try {
       if (active.key === 'details' || active.key === 'nowork') {
         const result = active.key === 'nowork'
@@ -391,23 +403,26 @@ export default function DsrDetailsPage() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {rows.map((r) => (
-                    <TableRow key={`${r.groupId}-${r.groupName}`} hover>
+                  {/*  Only render rows that actually carry the grouped shape. Belt-and-braces
+                       alongside clearing data in load(): if a future change ever feeds this table
+                       a different payload, it renders nothing rather than a row of "undefined".  */}
+                  {rows.filter((r) => r?.groupName !== undefined).map((r) => (
+                    <TableRow key={`${r.groupId ?? 'none'}-${r.groupName}`} hover>
                       <TableCell>
                         <Typography variant="body2">{r.groupName}</Typography>
                         {r.groupSubtitle && <Typography variant="caption" color="text.secondary">{r.groupSubtitle}</Typography>}
                       </TableCell>
-                      <TableCell align="right">{r.entryCount}</TableCell>
-                      <TableCell align="right">{r.employeeCount}</TableCell>
-                      <TableCell align="right">{r.projectCount}</TableCell>
-                      <TableCell align="right">{r.daysLogged}</TableCell>
-                      <TableCell align="right"><strong>{r.totalHoursLogged}</strong></TableCell>
-                      <TableCell align="right">{r.totalEstimatedHours}</TableCell>
-                      <TableCell align="right">{r.averageHoursPerDay}</TableCell>
-                      <TableCell align="right">{r.pendingApprovalCount}</TableCell>
-                      <TableCell align="right">{r.approvedCount}</TableCell>
-                      <TableCell align="right">{r.returnedCount}</TableCell>
-                      <TableCell align="right"><Chip size="small" label={`${r.sharePct}%`} /></TableCell>
+                      <TableCell align="right">{r.entryCount ?? 0}</TableCell>
+                      <TableCell align="right">{r.employeeCount ?? 0}</TableCell>
+                      <TableCell align="right">{r.projectCount ?? 0}</TableCell>
+                      <TableCell align="right">{r.daysLogged ?? 0}</TableCell>
+                      <TableCell align="right"><strong>{r.totalHoursLogged ?? 0}</strong></TableCell>
+                      <TableCell align="right">{r.totalEstimatedHours ?? 0}</TableCell>
+                      <TableCell align="right">{r.averageHoursPerDay ?? 0}</TableCell>
+                      <TableCell align="right">{r.pendingApprovalCount ?? 0}</TableCell>
+                      <TableCell align="right">{r.approvedCount ?? 0}</TableCell>
+                      <TableCell align="right">{r.returnedCount ?? 0}</TableCell>
+                      <TableCell align="right"><Chip size="small" label={`${r.sharePct ?? 0}%`} /></TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

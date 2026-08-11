@@ -68,15 +68,20 @@ export default function DsrEntryPage() {
     return () => { cancelled = true; };
   }, [workDate]);
 
-  const loadDay = useCallback(async (date) => {
+  /**
+   * @param prefillAi  true when opening a date (helpful to show what is already declared),
+   *                   false straight after a save so the form stays cleared as required.
+   */
+  const loadDay = useCallback(async (date, prefillAi = true) => {
     setLoading(true);
     setError(null);
     try {
       const result = await dsrApi.day(date);
       setDay(result);
 
-      // Carry the day's existing AI declaration into the form: it is one answer per date.
-      if (result.isAiUsed !== null && result.isAiUsed !== undefined) {
+      // The day's AI declaration is one answer per date, so it is offered as a starting point when
+      // the date is opened -- but never re-applied after a save, which must leave the form empty.
+      if (prefillAi && result.isAiUsed !== null && result.isAiUsed !== undefined) {
         setValue('isAiUsed', String(result.isAiUsed));
         setValue('aiToolId', result.aiToolId ?? '');
         setValue('aiUsageRemarks', result.aiUsageRemarks ?? '');
@@ -101,7 +106,23 @@ export default function DsrEntryPage() {
   /** Projects already logged today, used only to show a hint chip -- never to hide anything. */
   const loggedProjectIds = useMemo(() => new Set(day?.usedProjectIds ?? []), [day]);
 
-  const remaining = day ? Math.max(0, day.maxDailyHours - day.totalHours) : 0;
+  const selectedProjectId = watch('projectId');
+
+  /*  Remaining hours are PER PROJECT, matching the rule the API enforces.
+      Previously this subtracted the whole day's total from the cap, so after logging 4h on one
+      project every other project also showed "4 remaining" -- wrong, because each project has its
+      own allowance. It now counts only the entries already logged against the selected project,
+      and resets to the full allowance the moment a different project is chosen. */
+  const perProjectCap = day?.maxDailyHours ?? 8;
+
+  const projectLogged = useMemo(() => {
+    if (!day || !selectedProjectId) return 0;
+    return day.entries
+      .filter((e) => e.projectId === Number(selectedProjectId) && e.id !== editingId?.id)
+      .reduce((sum, e) => sum + e.estimatedHours, 0);
+  }, [day, selectedProjectId, editingId]);
+
+  const remaining = Math.max(0, perProjectCap - projectLogged);
 
   const onSubmit = async (values) => {
     setSaving(true);
@@ -128,15 +149,15 @@ export default function DsrEntryPage() {
         setToast('DSR entry saved. Add another project for this date if needed.');
       }
 
-      // Reset only the per-project fields; the AI declaration persists for the date.
-      reset({
-        ...emptyForm,
-        isAiUsed: values.isAiUsed,
-        aiToolId: values.aiToolId,
-        aiUsageRemarks: values.aiUsageRemarks,
-      });
+      /*  Full reset, including the AI tool and remarks.
+          These used to be carried over so the day's AI declaration did not have to be re-entered
+          for each project, but the requirement is a clean form after every save. The day's saved
+          declaration is still visible in the panel on the right, and because the API UPSERTS it
+          per (employee, date), re-answering on the next entry updates that one row rather than
+          creating a second -- the most recent answer wins for the day. */
+      reset(emptyForm);
       setEditingId(null);
-      await loadDay(workDate);
+      await loadDay(workDate, false);   // false = leave the AI fields cleared
     } catch (e) {
       // Field-level errors from FluentValidation are mapped back onto the form controls.
       if (e.fieldErrors) {
@@ -263,7 +284,11 @@ export default function DsrEntryPage() {
                         inputProps={{ min: 0, max: 24, step: 0.25 }}
                         error={Boolean(errors.estimatedHours)}
                         helperText={errors.estimatedHours?.message
-                          ?? `${remaining} of ${day?.maxDailyHours ?? 8} hour(s) remaining for this date.`} />
+                          ?? (isNoWorkDone
+                            ? 'Not applicable when no work was done.'
+                            : !selectedProjectId
+                              ? `Up to ${perProjectCap} hour(s) per project for this date.`
+                              : `${remaining} of ${perProjectCap} hour(s) remaining for this project on this date.`)} />
                     )}
                   />
                 </Grid>
