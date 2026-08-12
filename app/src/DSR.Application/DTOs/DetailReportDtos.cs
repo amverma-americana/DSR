@@ -159,6 +159,12 @@ public class MissingDsrDetailRowDto
     public DateOnly? MostRecentMissingDate { get; set; }
 }
 
+// Approval workflow disabled as per current business requirement.
+// All DSR entries are treated as automatically approved.
+//
+// This was the request body for POST /api/admin-reports/review. It had no FluentValidation
+// validator -- ReviewAsync validated inline -- so nothing else references it.
+/*
 /// <summary>Approve or return one or more DSR entries.</summary>
 public class ReviewDsrEntriesRequest
 {
@@ -170,6 +176,7 @@ public class ReviewDsrEntriesRequest
     /// <summary>Mandatory when returning; the employee needs to know why.</summary>
     public string? Comments { get; set; }
 }
+*/
 
 public record DepartmentDto(int Id, string DepartmentCode, string DepartmentName, string? HeadName, int EmployeeCount, bool IsActive);
 

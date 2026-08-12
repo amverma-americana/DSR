@@ -21,6 +21,14 @@ namespace DSR.Application.Services;
 /// Scope is applied before any client filter: Admin sees everything, Manager sees their own team.
 /// Employees never reach here (ReportsController requires ADMIN or MANAGER).
 /// </summary>
+/*  Approval workflow disabled as per current business requirement.
+    All DSR entries are treated as automatically approved.
+
+    `uow` and `audit` are now unread, because the commented-out ReviewAsync was their only consumer:
+    it was the single method in this service that WROTE anything. They are kept on the constructor
+    so reactivating ReviewAsync needs no DI change, and CS9113 (unread parameter) is suppressed for
+    that reason rather than left as build noise. Remove the pragma when the workflow returns.  */
+#pragma warning disable CS9113 // Parameter is unread — retained for the disabled approval workflow.
 public class DetailReportService(
     IDetailReportRepository repository,
     IUnitOfWork uow,
@@ -28,6 +36,7 @@ public class DetailReportService(
     IDateTimeProvider clock,
     IAuditService audit) : IDetailReportService
 {
+#pragma warning restore CS9113
     public async Task<DsrDetailReportDto> GetDetailReportAsync(DsrDetailReportFilter filter, CancellationToken ct = default)
     {
         var query = BuildQuery(filter);
@@ -200,6 +209,17 @@ public class DetailReportService(
         return rows.OrderByDescending(r => r.TotalHoursLogged).ToList();
     }
 
+    // Approval workflow disabled as per current business requirement.
+    // All DSR entries are treated as automatically approved.
+    //
+    // The two members below are the ONLY code that reads or writes DSREntries.StatusCode as a
+    // workflow state. With them disabled every entry stays on the column default of SUBMITTED,
+    // and because no report, dashboard or export filters on that column, logged hours are visible
+    // to admins the instant an employee saves them.
+    //
+    // To reactivate: uncomment these, the matching members on IDetailReportService, the review and
+    // approval-status endpoints on AdminReportsController, and adminReportsApi in the client.
+    /*
     public async Task<IReadOnlyList<ApprovalStatusReportRowDto>> GetApprovalStatusReportAsync(
         DsrDetailReportFilter filter, CancellationToken ct = default)
     {
@@ -233,6 +253,7 @@ public class DetailReportService(
         .OrderByDescending(r => r.EntryCount)
         .ToList();
     }
+    */
 
     public async Task<IReadOnlyList<MissingDsrDetailRowDto>> GetMissingDsrDetailAsync(
         DsrDetailReportFilter filter, CancellationToken ct = default)
@@ -280,6 +301,9 @@ public class DetailReportService(
 
     /* --------------------------------- REVIEW --------------------------------- */
 
+    // Approval workflow disabled as per current business requirement.
+    // All DSR entries are treated as automatically approved.
+    /*
     public async Task<int> ReviewAsync(ReviewDsrEntriesRequest request, CancellationToken ct = default)
     {
         if (!currentUser.IsAdmin && !currentUser.IsManager)
@@ -333,6 +357,7 @@ public class DetailReportService(
         await uow.SaveChangesAsync(ct);
         return entries.Count;
     }
+    */
 
     /* --------------------------------- EXPORT --------------------------------- */
 
@@ -377,18 +402,31 @@ public class DetailReportService(
         using var workbook = new XLWorkbook();
         var sheet = workbook.Worksheets.Add("DSR Details");
 
-        /*  EXPORT CONTRACT -- exactly six columns, in this order, using REPORT ALIASES rather than
-            database or DTO field names:
+        /*  EXPORT CONTRACT -- exactly seven columns, in this order, using REPORT ALIASES rather
+            than database or DTO field names:
 
-                Task Entry Date | Resource | Project | Task Description | Estimated Hours | Hours Logged
+                Date | Resource | Project | Task Description | Estimated Hours | Hours Logged | Task Entry Date
 
-            Aliases map to: EmployeeName -> "Resource", ProjectName -> "Project". The remaining 21
-            columns of the previous layout are retained in the commented block below so the full
-            export can be restored without reconstructing it. Nothing on the API or the view was
-            removed -- every field is still returned by /admin-reports/dsr-details.               */
+            Aliases map to:
+                "Date"            -> WorkDate  (DsrDate on the DTO) -- the day the effort BELONGS TO
+                "Resource"        -> EmployeeName
+                "Project"         -> ProjectName
+                "Task Entry Date" -> CreatedDate (TaskEntryDate on the DTO) -- when the row was SAVED
+
+            The two dates are distinct and both matter. They diverge whenever an entry is
+            back-dated within the allowed window: effort performed on the 7th but recorded on the
+            10th reads "07-Aug" in Date and "10-Aug-2026 12:06" in Task Entry Date. Date leads the
+            report because every period total must be bucketed by when the work happened -- keying
+            a month-end report off the entry timestamp would push work done on 31 July into August.
+            Task Entry Date sits last as the audit trail rather than the reporting key.
+
+            The remaining 21 columns of the previous layout are retained in the commented block
+            below so the full export can be restored without reconstructing it. Nothing on the API
+            or the view was removed -- every field is still returned by /admin-reports/dsr-details. */
         string[] headers =
         [
-            "Task Entry Date", "Resource", "Project", "Task Description", "Estimated Hours", "Hours Logged"
+            "Date", "Resource", "Project", "Task Description", "Estimated Hours", "Hours Logged",
+            "Task Entry Date"
         ];
 
         /* Previous 27-column layout, disabled by request:
@@ -413,12 +451,15 @@ public class DetailReportService(
         var r = 2;
         foreach (var row in report.Rows.Items)
         {
-            sheet.Cell(r, 1).Value = row.TaskEntryDate;      // Task Entry Date
+            /*  DsrDate is a DateOnly and ClosedXML has no overload for it, so it is widened to
+                midnight. The column format below prints date only, so no spurious 00:00 appears. */
+            sheet.Cell(r, 1).Value = row.DsrDate.ToDateTime(TimeOnly.MinValue);  // Date (work date)
             sheet.Cell(r, 2).Value = row.EmployeeName;       // Resource
             sheet.Cell(r, 3).Value = row.ProjectName;        // Project
             sheet.Cell(r, 4).Value = row.TaskDescription;    // Task Description
             sheet.Cell(r, 5).Value = row.EstimatedHours;     // Estimated Hours
             sheet.Cell(r, 6).Value = row.HoursLogged;        // Hours Logged
+            sheet.Cell(r, 7).Value = row.TaskEntryDate;      // Task Entry Date (recorded-on stamp)
             r++;
         }
 
@@ -441,8 +482,11 @@ public class DetailReportService(
         sheet.Cell(r, 27).Value = row.AiToolName;
         */
 
-        // Column 1 carries a timestamp; columns 5 and 6 are hours to two decimals.
-        sheet.Column(1).Style.DateFormat.Format = "dd-MMM-yyyy HH:mm";
+        /*  Column 1 is a work DATE -- no time component, so it is formatted date-only. Printing
+            "05-Aug-2026 00:00" there would imply a precision the field does not carry.
+            Column 7 is the entry TIMESTAMP and keeps its time. Columns 5 and 6 are hours.        */
+        sheet.Column(1).Style.DateFormat.Format = "dd-MMM-yyyy";
+        sheet.Column(7).Style.DateFormat.Format = "dd-MMM-yyyy HH:mm";
         foreach (var col in new[] { 5, 6 }) sheet.Column(col).Style.NumberFormat.Format = "0.00";
 
         if (r > 2) sheet.Range(1, 1, r - 1, headers.Length).SetAutoFilter();
@@ -547,15 +591,23 @@ public class DetailReportService(
         var sb = new StringBuilder();
         sb.AppendLine(string.Join(',', new[]
         {
-            "Task Entry Date", "Resource", "Project", "Task Description", "Estimated Hours", "Hours Logged"
+            "Date", "Resource", "Project", "Task Description", "Estimated Hours", "Hours Logged",
+            "Task Entry Date"
         }.Select(Escape)));
 
         foreach (var row in report.Rows.Items)
         {
+            /*  Both dates are formatted EXPLICITLY rather than left to Escape's default ToString.
+                CSV has no cell formats, so an unformatted DateOnly/DateTime would render in the
+                server's current culture -- which is how the same export ends up as 08/05/2026 on
+                one machine and 05-08-2026 on another, and how Excel then mis-parses the day and
+                month. Fixed patterns keep the file identical wherever it is produced or opened.  */
             sb.AppendLine(string.Join(',', new object?[]
             {
-                row.TaskEntryDate, row.EmployeeName, row.ProjectName,
-                row.TaskDescription, row.EstimatedHours, row.HoursLogged
+                row.DsrDate.ToString("dd-MMM-yyyy"),                     // Date (work date)
+                row.EmployeeName, row.ProjectName,
+                row.TaskDescription, row.EstimatedHours, row.HoursLogged,
+                row.TaskEntryDate.ToString("dd-MMM-yyyy HH:mm"),         // Task Entry Date
             }.Select(Escape)));
         }
 
@@ -639,11 +691,20 @@ public class DetailReportService(
             query = query.Where(v => v.SubmittedOn <= to);
         }
 
+        // Approval workflow disabled as per current business requirement.
+        // All DSR entries are treated as automatically approved.
+        //
+        // These were the pending-approval filters. They are disabled rather than merely unused: a
+        // caller passing ?statusCode=APPROVED would otherwise get ZERO rows, because with no
+        // workflow every entry stays on SUBMITTED. Silently narrowing a report to nothing is worse
+        // than ignoring the parameter, and the filter keys remain on the DTO for reactivation.
+        /*
         if (!string.IsNullOrWhiteSpace(filter.StatusCode))
             query = query.Where(v => v.StatusCode == filter.StatusCode.ToUpperInvariant());
 
         if (!string.IsNullOrWhiteSpace(filter.ApprovalStatus))
             query = query.Where(v => v.ApprovalStatus == filter.ApprovalStatus);
+        */
 
         if (filter.IsNoWorkDone.HasValue) query = query.Where(v => v.IsNoWorkDone == filter.IsNoWorkDone);
         if (filter.IsAiUsed.HasValue) query = query.Where(v => v.IsAiUsed == filter.IsAiUsed);

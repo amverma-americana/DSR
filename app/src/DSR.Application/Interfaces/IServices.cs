@@ -158,8 +158,11 @@ public interface IReportingService
 }
 
 /// <summary>
-/// Admin reporting module: full DSR detail with advanced filters, grouped roll-ups, approval
-/// status, missing DSR, review actions and Excel/CSV export.
+/// Admin reporting module: full DSR detail with advanced filters, grouped roll-ups, missing DSR
+/// and Excel/CSV export.
+///
+/// Approval workflow disabled as per current business requirement.
+/// All DSR entries are treated as automatically approved.
 /// </summary>
 public interface IDetailReportService
 {
@@ -168,11 +171,16 @@ public interface IDetailReportService
     /// <summary>groupBy: employee | project | department | manager | category.</summary>
     Task<IReadOnlyList<GroupedReportRowDto>> GetGroupedReportAsync(string groupBy, DsrDetailReportFilter filter, CancellationToken ct = default);
 
-    Task<IReadOnlyList<ApprovalStatusReportRowDto>> GetApprovalStatusReportAsync(DsrDetailReportFilter filter, CancellationToken ct = default);
     Task<IReadOnlyList<MissingDsrDetailRowDto>> GetMissingDsrDetailAsync(DsrDetailReportFilter filter, CancellationToken ct = default);
+
+    // Approval workflow disabled as per current business requirement.
+    // All DSR entries are treated as automatically approved.
+    /*
+    Task<IReadOnlyList<ApprovalStatusReportRowDto>> GetApprovalStatusReportAsync(DsrDetailReportFilter filter, CancellationToken ct = default);
 
     /// <summary>Approve or return entries. Returns the number affected.</summary>
     Task<int> ReviewAsync(ReviewDsrEntriesRequest request, CancellationToken ct = default);
+    */
 
     /// <summary>format: xlsx | csv.</summary>
     Task<(string FileName, string ContentType, byte[] Content)> ExportDetailAsync(string format, DsrDetailReportFilter filter, CancellationToken ct = default);

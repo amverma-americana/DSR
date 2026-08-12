@@ -106,8 +106,13 @@ public class DsrEntryService(
 
             /*  No duplicate check. Multiple entries against the SAME project on the SAME date are
                 deliberately allowed (timesheet style: API Development 4h, Unit Testing 2h,
-                Bug Fixing 1h all against Project A). The daily total is the only limit.        */
-            await EnsureHoursCapAsync(targetUserId, request.WorkDate, request.ProjectId, request.EstimatedHours, null, ct);
+                Bug Fixing 1h all against Project A).
+
+                DAILY HOURS LIMITS REMOVED as per current business requirement.
+                8 hours is now a utilisation BENCHMARK, not a validation ceiling: an employee may
+                log any number of hours against a project and any total across a day. See
+                EnsureHoursCapAsync below, which is retained but no longer called.            */
+            // await EnsureHoursCapAsync(targetUserId, request.WorkDate, request.ProjectId, request.EstimatedHours, null, ct);
         }
 
         var sanitizedHtml = html.Sanitize(request.WorkDescriptionHtml);
@@ -195,8 +200,10 @@ public class DsrEntryService(
 
             await ValidateProjectAsync(request.ProjectId.Value, entry.WorkDate, ct);
 
-            // Duplicate project on the same date is permitted; only the daily total is enforced.
-            await EnsureHoursCapAsync(entry.UserId, entry.WorkDate, request.ProjectId, request.EstimatedHours, id, ct);
+            /*  Duplicate project on the same date is permitted.
+                DAILY HOURS LIMITS REMOVED as per current business requirement -- 8 hours is a
+                utilisation benchmark, not a ceiling. See EnsureHoursCapAsync below.            */
+            // await EnsureHoursCapAsync(entry.UserId, entry.WorkDate, request.ProjectId, request.EstimatedHours, id, ct);
 
             entry.ProjectId = request.ProjectId;
             entry.EstimatedHours = request.EstimatedHours;
@@ -582,6 +589,29 @@ public class DsrEntryService(
     /// Both exclude the entry being edited, so an in-place update never counts itself twice.
     /// Mirrored by trg_DSREntries_DailyRules, which is the last line of defence.
     /// </summary>
+    /*  ---------------------------------------------------------------------------------------------
+        DAILY HOURS LIMITS REMOVED as per current business requirement.
+
+        8 hours is now the utilisation BENCHMARK only -- it no longer restricts what can be entered:
+            Project A = 12h  -> allowed
+            Project B = 15h  -> allowed
+            day total = 25h  -> allowed  (utilisation 312.5%)
+
+        This method enforced two ceilings, both now disabled:
+            1. per project per day  <= the employee's StandardDailyHours
+            2. whole day            <= AppSettings 'DSR.MaxDailyHours'
+
+        IMPORTANT: removing this method alone was NOT sufficient. The same two rules were enforced
+        independently by the database trigger dsr.trg_DSREntries_DailyRules (THROW 51001 and 51004),
+        so entries above the cap failed at the database even with this code gone. Migration
+        09_Migration_RemoveDailyHoursLimits.sql rebuilds that trigger without those two rules and
+        must be applied to every environment. The trigger's remaining rule -- a "No Work Done"
+        declaration cannot coexist with real entries (51002) -- is deliberately kept.
+
+        Retained, not deleted, so the cap can be reinstated by uncommenting this body and its two
+        call sites above, and re-running the trigger's previous definition from migration 06/08.
+        --------------------------------------------------------------------------------------------- */
+    /*
     private async Task EnsureHoursCapAsync(int userId, DateOnly workDate, int? projectId, decimal newHours, int? excludeEntryId, CancellationToken ct)
     {
         var standardDailyHours = await uow.Users.Query()
@@ -627,6 +657,7 @@ public class DsrEntryService(
                 $"Total hours for {workDate:dd MMM yyyy} would be {dayTotal:0.##} across all projects, which exceeds the " +
                 $"maximum of {maxDailyHours:0.##} hour(s) a day. {dayHours:0.##} hour(s) are already logged.");
     }
+    */
 
     /// <summary>
     /// Data scope. Employee: self only. Manager: self and direct reports. Admin: anyone.

@@ -1,18 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import {
-  Alert, Box, Button, Card, CardContent, Checkbox, Chip, CircularProgress, Divider,
-  FormControl, FormControlLabel, FormHelperText, Grid, IconButton, InputLabel, LinearProgress,
-  MenuItem, Radio, RadioGroup, Select, Snackbar, Stack, Table, TableBody, TableCell, TableHead,
-  TableRow, TextField, Tooltip, Typography,
+  Alert, Box, Button, Chip, CircularProgress, Divider, FormControl, FormControlLabel,
+  FormHelperText, Grid, IconButton, InputLabel, LinearProgress, LinearProgress as Meter, MenuItem,
+  Radio, RadioGroup, Select, Snackbar, Stack, Table, TableBody, TableCell, TableHead, TableRow,
+  TextField, Tooltip, Typography,
 } from '@mui/material';
-import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
-import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
-import SaveIcon from '@mui/icons-material/Save';
-import AddIcon from '@mui/icons-material/Add';
+// `Checkbox` was used only by the commented-out "No Work Done" control; restore the import with it.
+import { CalendarDays, Pencil, Plus, Save, Sparkles, Trash2 } from 'lucide-react';
 import dayjs from 'dayjs';
 import { dsrApi } from '../api/client';
 import RichTextField from '../components/RichTextField';
+import PageHeader from '../components/PageHeader';
+import SectionCard from '../components/SectionCard';
+import EmptyState from '../components/EmptyState';
+import ConfirmDialog from '../components/ConfirmDialog';
+import ProjectSelect from '../components/ProjectSelect';
+import { COLORS } from '../theme/tokens';
 
 /**
  * DSR ENTRY SCREEN.
@@ -24,6 +28,10 @@ import RichTextField from '../components/RichTextField';
  *
  * The AI question sits outside the per-project form conceptually -- it is declared once per day and
  * the API upserts it -- so once a declaration exists for the date it is pre-filled and reused.
+ *
+ * The redesign groups the form into three labelled sections (When, What, AI usage) so a long
+ * single column of controls reads as a sequence of decisions rather than a wall of inputs. The
+ * submit logic, validation rules and payload are untouched.
  */
 const emptyForm = {
   projectId: '',
@@ -35,6 +43,25 @@ const emptyForm = {
   aiUsageRemarks: '',
 };
 
+/** Small labelled divider used to open each section of the form. */
+const FormSection = ({ step, title, hint }) => (
+  <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 0.5 }}>
+    <Box
+      aria-hidden="true"
+      sx={{
+        display: 'grid', placeItems: 'center', width: 22, height: 22, borderRadius: '50%',
+        bgcolor: COLORS.primaryLight, color: COLORS.primary, fontSize: 11, fontWeight: 700,
+      }}
+    >
+      {step}
+    </Box>
+    <Box>
+      <Typography variant="subtitle1" component="h3">{title}</Typography>
+      {hint && <Typography variant="caption" color="text.secondary">{hint}</Typography>}
+    </Box>
+  </Stack>
+);
+
 export default function DsrEntryPage() {
   const [metadata, setMetadata] = useState(null);
   const [workDate, setWorkDate] = useState(dayjs().format('YYYY-MM-DD'));
@@ -44,6 +71,7 @@ export default function DsrEntryPage() {
   const [editingId, setEditingId] = useState(null);
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
+  const [pendingRemoval, setPendingRemoval] = useState(null);
 
   const { control, handleSubmit, reset, watch, setValue, setError: setFieldError, formState: { errors } } =
     useForm({ defaultValues: emptyForm });
@@ -103,18 +131,26 @@ export default function DsrEntryPage() {
    */
   const availableProjects = metadata?.projects ?? [];
 
-  /** Projects already logged today, used only to show a hint chip -- never to hide anything. */
-  const loggedProjectIds = useMemo(() => new Set(day?.usedProjectIds ?? []), [day]);
+  /*  Projects already logged today. This drove a "logged today" hint chip on each dropdown option,
+      removed with the simplification to project-name-only display. Nothing about the RULE changed:
+      a project may still be logged any number of times a day, and the saved-entries panel on the
+      right already shows what has been recorded. Retained for reactivation alongside the chip.
+
+      const loggedProjectIds = useMemo(() => new Set(day?.usedProjectIds ?? []), [day]);          */
 
   const selectedProjectId = watch('projectId');
 
-  /*  Remaining hours are PER PROJECT, matching the rule the API enforces.
-      Previously this subtracted the whole day's total from the cap, so after logging 4h on one
-      project every other project also showed "4 remaining" -- wrong, because each project has its
-      own allowance. It now counts only the entries already logged against the selected project,
-      and resets to the full allowance the moment a different project is chosen. */
-  const perProjectCap = day?.maxDailyHours ?? 8;
+  /*  DAILY HOURS LIMITS REMOVED as per current business requirement.
+      8 hours is the utilisation BENCHMARK, not a ceiling -- so there is no "remaining" allowance
+      to count down and nothing to warn about. `perProjectCap` and `remaining` are retained below
+      for reactivation; the helper text that quoted them has been replaced with a plain statement
+      of how much is already on the project, which is useful information without implying a limit.
 
+      const perProjectCap = day?.maxDailyHours ?? 8;
+      const remaining = Math.max(0, perProjectCap - projectLogged);                              */
+
+  /*  Still computed, and still shown -- but now purely informational: "4h already logged against
+      this project today" helps an employee avoid double-entering, without blocking anything.  */
   const projectLogged = useMemo(() => {
     if (!day || !selectedProjectId) return 0;
     return day.entries
@@ -122,7 +158,18 @@ export default function DsrEntryPage() {
       .reduce((sum, e) => sum + e.estimatedHours, 0);
   }, [day, selectedProjectId, editingId]);
 
-  const remaining = Math.max(0, perProjectCap - projectLogged);
+  const dayTotal = day?.totalHours ?? 0;
+  /*  The benchmark for the utilisation reading, from the employee's StandardDailyHours (8 by
+      default). It is a denominator now, never a limit.  */
+  const benchmarkHours = day?.standardDailyHours ?? 8;
+
+  /*  Utilisation is UNCAPPED -- 25 hours against an 8-hour benchmark reads 312%, matching the
+      report. The previous Math.min(100, ...) clamp would have shown 100% for both a full day and
+      a triple day, hiding exactly the over-logging this change makes possible.
+      The progress BAR is still clamped to 100 because a bar cannot render past its track; the
+      figure beside it carries the real number.  */
+  const dayUtilisationPct = Math.round((dayTotal / (benchmarkHours || 1)) * 100);
+  const dayProgress = Math.min(100, dayUtilisationPct);
 
   const onSubmit = async (values) => {
     setSaving(true);
@@ -183,10 +230,17 @@ export default function DsrEntryPage() {
       aiToolId: day?.aiToolId ?? '',
       aiUsageRemarks: day?.aiUsageRemarks ?? '',
     });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const removeEntry = async (entry) => {
-    if (!window.confirm(`Remove the ${entry.projectName ?? 'No Work Done'} entry for ${dayjs(workDate).format('DD MMM YYYY')}?`)) return;
+  /*  Removal is gated by a styled confirmation dialog rather than window.confirm. The gate itself
+      is unchanged -- nothing is deleted until the user confirms -- but the prompt can now state
+      which entry and which date are affected in readable type.  */
+  const confirmRemoval = async () => {
+    const entry = pendingRemoval;
+    setPendingRemoval(null);
+    if (!entry) return;
+
     try {
       await dsrApi.remove(entry.id);
       setToast('DSR entry removed.');
@@ -196,257 +250,383 @@ export default function DsrEntryPage() {
     }
   };
 
-  if (loading && !metadata) return <LinearProgress />;
+  if (loading && !metadata) return <LinearProgress aria-label="Loading DSR form" />;
 
   return (
     <Box>
-      <Typography variant="h5" gutterBottom>Daily Status Report</Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Save one entry per project. Working on three projects today means three saves.
-      </Typography>
+      <PageHeader
+        title="Daily Status Report"
+        description="Save one entry per project. Working on three projects today means three saves."
+      />
 
-      {error && <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>{error}</Alert>}
+      {error && <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 3 }}>{error}</Alert>}
 
-      <Grid container spacing={2}>
+      <Grid container spacing={2.5}>
         {/* ------------------------------- ENTRY FORM ------------------------------- */}
-        <Grid item xs={12} md={7}>
-          <Card component="form" onSubmit={handleSubmit(onSubmit)}>
-            <CardContent>
-              <Grid container spacing={2}>
-                <Grid item xs={12} sm={6}>
-                  <TextField
-                    label="Work Date" type="date" fullWidth required
-                    value={workDate}
-                    onChange={(e) => { setWorkDate(e.target.value); setEditingId(null); reset(emptyForm); }}
-                    inputProps={{ min: metadata?.minWorkDate, max: metadata?.maxWorkDate }}
-                    InputLabelProps={{ shrink: true }}
-                    helperText={`Between ${dayjs(metadata?.minWorkDate).format('DD MMM')} and today (${metadata?.backDateWindowDays}-day window). Future dates are not allowed.`}
-                  />
-                </Grid>
-
-                <Grid item xs={12} sm={6} sx={{ display: 'flex', alignItems: 'center' }}>
-                  <Controller
-                    name="isNoWorkDone" control={control}
-                    render={({ field }) => (
-                      <FormControlLabel
-                        control={<Checkbox {...field} checked={field.value}
-                          onChange={(e) => {
-                            field.onChange(e.target.checked);
-                            if (e.target.checked) { setValue('projectId', ''); setValue('estimatedHours', 0); }
-                          }} />}
-                        label="No Work Done"
+        <Grid item xs={12} lg={7}>
+          <SectionCard
+            title={editingId ? 'Edit entry' : 'New entry'}
+            subtitle={editingId ? 'Updating an existing entry for this date.' : 'Record work against a single project.'}
+            action={editingId ? <Chip size="small" color="warning" label="Editing" /> : null}
+          >
+            <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate>
+              <Stack spacing={3} sx={{ mt: 1 }}>
+                {/* ---------------------------------------------------------- 1. when */}
+                <Box>
+                  <FormSection step="1" title="When" hint="The date this work was performed." />
+                  <Grid container spacing={2} sx={{ mt: 0 }}>
+                    <Grid item xs={12} sm={6}>
+                      <TextField
+                        label="Work Date" type="date" fullWidth required
+                        value={workDate}
+                        onChange={(e) => { setWorkDate(e.target.value); setEditingId(null); reset(emptyForm); }}
+                        inputProps={{ min: metadata?.minWorkDate, max: metadata?.maxWorkDate }}
+                        InputLabelProps={{ shrink: true }}
+                        helperText={`Between ${dayjs(metadata?.minWorkDate).format('DD MMM')} and today (${metadata?.backDateWindowDays}-day window). Future dates are not allowed.`}
                       />
-                    )}
-                  />
-                </Grid>
+                    </Grid>
 
-                <Grid item xs={12} sm={7}>
-                  <Controller
-                    name="projectId" control={control}
-                    rules={{ required: !isNoWorkDone && 'Project is required.' }}
-                    render={({ field }) => (
-                      <FormControl fullWidth required={!isNoWorkDone} disabled={isNoWorkDone} error={Boolean(errors.projectId)}>
-                        <InputLabel id="project-label">Project</InputLabel>
-                        <Select {...field} labelId="project-label" label="Project">
-                          {availableProjects.map((p) => (
-                            <MenuItem key={p.id} value={p.id}>
-                              <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
-                                <span>{p.projectCode} — {p.projectName}</span>
-                                {loggedProjectIds.has(p.id) && (
-                                  <Chip size="small" variant="outlined" label="logged today" sx={{ ml: 'auto', height: 18, fontSize: 10 }} />
-                                )}
-                              </Box>
-                            </MenuItem>
-                          ))}
-                        </Select>
-                        <FormHelperText>
-                          {errors.projectId?.message
-                            ?? (isNoWorkDone
-                              ? 'Not required when no work was done.'
-                              : 'You can log the same project more than once a day.')}
-                        </FormHelperText>
-                      </FormControl>
-                    )}
-                  />
-                </Grid>
+                    {/* ---------------------------------------------------------------------------
+                        "No Work Done" commented out from the UI as per current requirement.
 
-                <Grid item xs={12} sm={5}>
-                  <Controller
-                    name="estimatedHours" control={control}
-                    rules={{
-                      required: !isNoWorkDone && 'Hours are required.',
-                      min: { value: isNoWorkDone ? 0 : 0.25, message: 'Hours must be greater than zero.' },
-                      max: { value: 24, message: 'Hours cannot exceed 24.' },
-                    }}
-                    render={({ field }) => (
-                      <TextField {...field} label="Estimated Hours" type="number" fullWidth
-                        required={!isNoWorkDone} disabled={isNoWorkDone}
-                        inputProps={{ min: 0, max: 24, step: 0.25 }}
-                        error={Boolean(errors.estimatedHours)}
-                        helperText={errors.estimatedHours?.message
-                          ?? (isNoWorkDone
-                            ? 'Not applicable when no work was done.'
-                            : !selectedProjectId
-                              ? `Up to ${perProjectCap} hour(s) per project for this date.`
-                              : `${remaining} of ${perProjectCap} hour(s) remaining for this project on this date.`)} />
-                    )}
-                  />
-                </Grid>
+                        The FIELD is not gone -- isNoWorkDone stays on the form defaults as false,
+                        so every save posts isNoWorkDone: false and the API contract is unchanged.
+                        Consequently Project, Estimated Hours and Work Description are now always
+                        required, which is exactly what an entry describing real work needs. All the
+                        `!isNoWorkDone && ...` validation rules below are left intact and simply
+                        evaluate as "work was done".
 
-                <Grid item xs={12}>
-                  <Controller
-                    name="workDescriptionHtml" control={control}
-                    rules={{ required: !isNoWorkDone && metadata?.requireDescription && 'Description is required when work has been performed.' }}
-                    render={({ field }) => (
-                      <RichTextField
-                        label="Work Description" value={field.value} onChange={field.onChange}
-                        disabled={isNoWorkDone}
-                        error={errors.workDescriptionHtml?.message}
+                        Historical entries that ARE flagged no-work-done still render correctly: the
+                        saved-entries panel further down keeps its "No Work Done" chip, and the DSR
+                        Reports "No Work Done" tab still reports them. Only the INPUT is hidden --
+                        1 such row exists in the database today and must not become unreadable.
+
+                        To restore, uncomment this block. Nothing server-side needs changing.
+                        --------------------------------------------------------------------------- */}
+                    {/*
+                    <Grid item xs={12} sm={6} sx={{ display: 'flex', alignItems: 'flex-start' }}>
+                      <Controller
+                        name="isNoWorkDone" control={control}
+                        render={({ field }) => (
+                          <Box
+                            sx={{
+                              width: '100%', height: 48, px: 2, display: 'flex', alignItems: 'center',
+                              border: `1px solid ${COLORS.border}`, borderRadius: 2.5,
+                              bgcolor: field.value ? COLORS.warningLight : 'transparent',
+                              borderColor: field.value ? COLORS.warning : COLORS.border,
+                              transition: 'background-color .15s ease, border-color .15s ease',
+                            }}
+                          >
+                            <FormControlLabel
+                              sx={{ m: 0 }}
+                              control={(
+                                <Checkbox
+                                  {...field} checked={field.value} size="small"
+                                  onChange={(e) => {
+                                    field.onChange(e.target.checked);
+                                    if (e.target.checked) { setValue('projectId', ''); setValue('estimatedHours', 0); }
+                                  }}
+                                />
+                              )}
+                              label={<Typography variant="body2">No Work Done</Typography>}
+                            />
+                          </Box>
+                        )}
                       />
-                    )}
-                  />
-                </Grid>
+                    </Grid>
+                    */}
+                  </Grid>
+                </Box>
 
-                <Grid item xs={12}><Divider><Chip label="AI usage — declared once per day" size="small" /></Divider></Grid>
+                <Divider />
 
-                <Grid item xs={12} sm={5}>
-                  <Controller
-                    name="isAiUsed" control={control}
-                    rules={{ required: 'Please state whether AI was used today.' }}
-                    render={({ field }) => (
-                      <FormControl error={Boolean(errors.isAiUsed)}>
-                        <Typography variant="body2" sx={{ mb: 0.5 }}>AI Used Today *</Typography>
-                        <RadioGroup {...field} row
-                          onChange={(e) => { field.onChange(e.target.value); if (e.target.value === 'false') setValue('aiToolId', ''); }}>
-                          <FormControlLabel value="true" control={<Radio />} label="Yes" />
-                          <FormControlLabel value="false" control={<Radio />} label="No" />
-                        </RadioGroup>
-                        <FormHelperText>{errors.isAiUsed?.message}</FormHelperText>
-                      </FormControl>
-                    )}
-                  />
-                </Grid>
-
-                {/* The tool dropdown is hidden entirely when AI = No, per the UI specification. */}
-                {isAiUsed === 'true' && (
-                  <>
+                {/* ---------------------------------------------------------- 2. what */}
+                <Box>
+                  <FormSection step="2" title="What you worked on" hint="One project per entry; log the same project again for separate tasks." />
+                  <Grid container spacing={2} sx={{ mt: 0 }}>
                     <Grid item xs={12} sm={7}>
                       <Controller
-                        name="aiToolId" control={control}
-                        rules={{ required: 'Select the AI tool you used.' }}
+                        name="projectId" control={control}
+                        rules={{ required: !isNoWorkDone && 'Project is required.' }}
                         render={({ field }) => (
-                          <FormControl fullWidth required error={Boolean(errors.aiToolId)}>
-                            <InputLabel id="tool-label">AI Tool</InputLabel>
-                            <Select {...field} labelId="tool-label" label="AI Tool">
-                              {metadata?.aiTools.map((t) => (
-                                <MenuItem key={t.id} value={t.id}>{t.toolName}</MenuItem>
-                              ))}
-                            </Select>
-                            <FormHelperText>{errors.aiToolId?.message}</FormHelperText>
+                          <ProjectSelect
+                            projects={availableProjects}
+                            value={field.value}
+                            onChange={field.onChange}
+                            label="Project"
+                            required={!isNoWorkDone}
+                            disabled={isNoWorkDone}
+                            error={Boolean(errors.projectId)}
+                            helperText={errors.projectId?.message
+                              ?? (isNoWorkDone
+                                ? 'Not required when no work was done.'
+                                : 'You can log the same project more than once a day.')}
+                          />
+                        )}
+                      />
+                    </Grid>
+
+                    <Grid item xs={12} sm={5}>
+                      <Controller
+                        name="estimatedHours" control={control}
+                        /*  DAILY HOURS LIMITS REMOVED as per current business requirement.
+                            The 8-hour rules are gone. What remains is a 24-hour bound on a SINGLE
+                            entry, which is not a daily limit: a day may total 25h+ across several
+                            entries, but one entry claiming more than 24 hours is physically
+                            impossible and is nearly always a typo (80 for 8). It matches
+                            CK_DSREntries_HoursRange and the FluentValidation rule, so leaving it
+                            in place means the user sees a clear field message instead of a raw
+                            database error.                                                       */
+                        rules={{
+                          required: !isNoWorkDone && 'Hours are required.',
+                          min: { value: isNoWorkDone ? 0 : 0.25, message: 'Hours must be greater than zero.' },
+                          max: { value: 24, message: 'A single entry cannot exceed 24 hours.' },
+                        }}
+                        render={({ field }) => (
+                          <TextField {...field} label="Estimated Hours" type="number" fullWidth
+                            required={!isNoWorkDone} disabled={isNoWorkDone}
+                            inputProps={{ min: 0, max: 24, step: 0.25 }}
+                            error={Boolean(errors.estimatedHours)}
+                            /*  No "remaining" or "up to N hours" wording: there is no allowance to
+                                spend. When a project already has time on it, that is stated as a
+                                fact rather than as a budget.                                     */
+                            helperText={errors.estimatedHours?.message
+                              ?? (isNoWorkDone
+                                ? 'Not applicable when no work was done.'
+                                : projectLogged > 0
+                                  ? `${projectLogged} hour(s) already logged against this project on this date.`
+                                  : 'Log the hours you spent. There is no daily limit.')} />
+                        )}
+                      />
+                    </Grid>
+
+                    <Grid item xs={12}>
+                      <Controller
+                        name="workDescriptionHtml" control={control}
+                        rules={{ required: !isNoWorkDone && metadata?.requireDescription && 'Description is required when work has been performed.' }}
+                        render={({ field }) => (
+                          <RichTextField
+                            label="Work Description" value={field.value} onChange={field.onChange}
+                            disabled={isNoWorkDone}
+                            error={errors.workDescriptionHtml?.message}
+                          />
+                        )}
+                      />
+                    </Grid>
+                  </Grid>
+                </Box>
+
+                <Divider />
+
+                {/* ---------------------------------------------------------- 3. ai */}
+                <Box>
+                  <FormSection step="3" title="AI usage" hint="Declared once per day, not per project." />
+                  <Grid container spacing={2} sx={{ mt: 0 }}>
+                    <Grid item xs={12} sm={5}>
+                      <Controller
+                        name="isAiUsed" control={control}
+                        rules={{ required: 'Please state whether AI was used today.' }}
+                        render={({ field }) => (
+                          <FormControl error={Boolean(errors.isAiUsed)} component="fieldset">
+                            <Typography component="legend" variant="subtitle2" sx={{ mb: 0.5 }}>
+                              AI Used Today *
+                            </Typography>
+                            <RadioGroup {...field} row
+                              onChange={(e) => { field.onChange(e.target.value); if (e.target.value === 'false') setValue('aiToolId', ''); }}>
+                              <FormControlLabel value="true" control={<Radio size="small" />} label={<Typography variant="body2">Yes</Typography>} />
+                              <FormControlLabel value="false" control={<Radio size="small" />} label={<Typography variant="body2">No</Typography>} />
+                            </RadioGroup>
+                            <FormHelperText>{errors.isAiUsed?.message}</FormHelperText>
                           </FormControl>
                         )}
                       />
                     </Grid>
-                    <Grid item xs={12}>
-                      <Controller
-                        name="aiUsageRemarks" control={control}
-                        render={({ field }) => (
-                          <TextField {...field} label="AI Usage Remarks" fullWidth multiline rows={2}
-                            inputProps={{ maxLength: 1000 }}
-                            helperText="Optional: what you used it for, and any time saved." />
-                        )}
-                      />
-                    </Grid>
-                  </>
-                )}
 
-                <Grid item xs={12}>
-                  <Stack direction="row" spacing={1}>
-                    <Button type="submit" variant="contained" disabled={saving}
-                      startIcon={saving ? <CircularProgress size={16} /> : (editingId ? <SaveIcon /> : <AddIcon />)}>
-                      {editingId ? 'Update Entry' : 'Save Entry'}
-                    </Button>
-                    {editingId && (
-                      <Button variant="text" onClick={() => { setEditingId(null); reset(emptyForm); }}>Cancel</Button>
+                    {/* The tool dropdown is hidden entirely when AI = No, per the UI specification. */}
+                    {isAiUsed === 'true' && (
+                      <>
+                        <Grid item xs={12} sm={7}>
+                          <Controller
+                            name="aiToolId" control={control}
+                            rules={{ required: 'Select the AI tool you used.' }}
+                            render={({ field }) => (
+                              <FormControl fullWidth required error={Boolean(errors.aiToolId)}>
+                                <InputLabel id="tool-label">AI Tool</InputLabel>
+                                <Select {...field} labelId="tool-label" label="AI Tool">
+                                  {metadata?.aiTools.map((t) => (
+                                    <MenuItem key={t.id} value={t.id}>{t.toolName}</MenuItem>
+                                  ))}
+                                </Select>
+                                <FormHelperText>{errors.aiToolId?.message}</FormHelperText>
+                              </FormControl>
+                            )}
+                          />
+                        </Grid>
+                        <Grid item xs={12}>
+                          <Controller
+                            name="aiUsageRemarks" control={control}
+                            render={({ field }) => (
+                              <TextField {...field} label="AI Usage Remarks" fullWidth multiline minRows={2}
+                                inputProps={{ maxLength: 1000 }}
+                                helperText="Optional: what you used it for, and any time saved." />
+                            )}
+                          />
+                        </Grid>
+                      </>
                     )}
-                  </Stack>
-                </Grid>
-              </Grid>
-            </CardContent>
-          </Card>
+                  </Grid>
+                </Box>
+
+                <Divider />
+
+                <Stack direction="row" spacing={1.5}>
+                  <Button type="submit" variant="contained" disabled={saving}
+                    startIcon={saving ? <CircularProgress size={15} color="inherit" /> : (editingId ? <Save size={16} /> : <Plus size={16} />)}>
+                    {editingId ? 'Update Entry' : 'Save Entry'}
+                  </Button>
+                  {editingId && (
+                    <Button variant="text" onClick={() => { setEditingId(null); reset(emptyForm); }}>Cancel</Button>
+                  )}
+                </Stack>
+              </Stack>
+            </Box>
+          </SectionCard>
         </Grid>
 
         {/* --------------------------- SAVED ENTRIES FOR THE DATE --------------------------- */}
-        <Grid item xs={12} md={5}>
-          <Card>
-            <CardContent>
-              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-                <Typography variant="subtitle1">{dayjs(workDate).format('DD MMM YYYY')}</Typography>
-                <Chip size="small" color={day?.totalHours >= day?.standardDailyHours ? 'success' : 'warning'}
-                  label={`${day?.totalHours ?? 0} / ${day?.standardDailyHours ?? 8} h`} />
-              </Stack>
+        <Grid item xs={12} lg={5}>
+          <SectionCard
+            title={dayjs(workDate).format('DD MMM YYYY')}
+            subtitle="Entries saved for this date"
+            action={(
+              <Chip
+                size="small"
+                color={dayTotal >= benchmarkHours ? 'success' : 'warning'}
+                label={`${dayTotal} / ${benchmarkHours} h`}
+              />
+            )}
+            noPadding
+            dividing
+          >
+            {/*  Utilisation against the 8-hour BENCHMARK, not progress towards a limit.
+                 The bar fills to 100% and stops (a track cannot render past its end), while the
+                 caption reports the true figure -- so a 12-hour day reads "150% of the 8h
+                 benchmark" rather than silently looking identical to an 8-hour day.            */}
+            <Box sx={{ px: 3, pt: 2 }}>
+              <Meter
+                variant="determinate"
+                value={dayProgress}
+                aria-label={`Hours logged against the ${benchmarkHours} hour benchmark`}
+                sx={{
+                  height: 6, borderRadius: 3,
+                  '& .MuiLinearProgress-bar': {
+                    borderRadius: 3,
+                    backgroundColor: dayTotal >= benchmarkHours ? COLORS.success : COLORS.primary,
+                  },
+                }}
+              />
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75 }}>
+                {dayUtilisationPct}% of the {benchmarkHours}h benchmark
+                {dayUtilisationPct > 100 && ' — above benchmark, which is allowed'}
+              </Typography>
+            </Box>
 
-              {loading ? <LinearProgress /> : (day?.entries?.length ? (
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Project / Work</TableCell>
-                      <TableCell align="right">Hours</TableCell>
-                      <TableCell align="right" />
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {day.entries.map((entry) => (
-                      <TableRow key={entry.id} hover>
-                        {/* The description is shown beneath the project because the same project
-                            can now appear several times; without it the rows are indistinguishable. */}
-                        <TableCell>
-                          {entry.isNoWorkDone ? (
-                            <Chip size="small" label="No Work Done" variant="outlined" />
-                          ) : (
-                            <>
-                              <Typography variant="body2">{entry.projectName}</Typography>
-                              {entry.workDescriptionPlain && (
-                                <Typography variant="caption" color="text.secondary"
-                                  sx={{ display: 'block', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                  {entry.workDescriptionPlain}
-                                </Typography>
-                              )}
-                            </>
-                          )}
-                        </TableCell>
-                        <TableCell align="right">{entry.estimatedHours}</TableCell>
-                        <TableCell align="right">
-                          <Tooltip title={entry.isEditable ? 'Edit' : 'Outside the editing window'}>
+            {loading ? (
+              <LinearProgress sx={{ mt: 2 }} />
+            ) : day?.entries?.length ? (
+              <Table size="small" sx={{ mt: 1.5 }}>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Project / Work</TableCell>
+                    <TableCell align="right">Hours</TableCell>
+                    <TableCell align="right">Actions</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {day.entries.map((entry) => (
+                    <TableRow key={entry.id} hover>
+                      {/* The description is shown beneath the project because the same project
+                          can now appear several times; without it the rows are indistinguishable. */}
+                      <TableCell>
+                        {entry.isNoWorkDone ? (
+                          <Chip size="small" label="No Work Done" variant="outlined" />
+                        ) : (
+                          <>
+                            <Typography variant="body2" fontWeight={500}>{entry.projectName}</Typography>
+                            {entry.workDescriptionPlain && (
+                              <Typography variant="caption" color="text.secondary"
+                                sx={{ display: 'block', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {entry.workDescriptionPlain}
+                              </Typography>
+                            )}
+                          </>
+                        )}
+                      </TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 600 }}>{entry.estimatedHours}</TableCell>
+                      <TableCell align="right">
+                        <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+                          <Tooltip title={entry.isEditable ? 'Edit entry' : 'Outside the editing window'}>
                             <span>
-                              <IconButton size="small" disabled={!entry.isEditable} onClick={() => beginEdit(entry)}>
-                                <EditOutlinedIcon fontSize="inherit" />
+                              <IconButton size="small" disabled={!entry.isEditable} onClick={() => beginEdit(entry)}
+                                aria-label={`Edit ${entry.projectName ?? 'No Work Done'} entry`}>
+                                <Pencil size={15} />
                               </IconButton>
                             </span>
                           </Tooltip>
-                          <IconButton size="small" disabled={!entry.isEditable} onClick={() => removeEntry(entry)}>
-                            <DeleteOutlineIcon fontSize="inherit" />
-                          </IconButton>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              ) : (
-                <Alert severity="info" variant="outlined">
-                  No entries yet for this date. Save your first project above.
-                </Alert>
-              ))}
+                          <Tooltip title={entry.isEditable ? 'Remove entry' : 'Outside the editing window'}>
+                            <span>
+                              <IconButton size="small" disabled={!entry.isEditable} onClick={() => setPendingRemoval(entry)}
+                                aria-label={`Remove ${entry.projectName ?? 'No Work Done'} entry`}
+                                sx={{ '&:hover': { color: 'error.main' } }}>
+                                <Trash2 size={15} />
+                              </IconButton>
+                            </span>
+                          </Tooltip>
+                        </Stack>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            ) : (
+              <EmptyState
+                compact icon={CalendarDays} title="No entries yet"
+                description="Save your first project for this date using the form."
+              />
+            )}
 
-              {day?.isAiUsed !== null && day?.isAiUsed !== undefined && (
-                <Alert severity="success" variant="outlined" sx={{ mt: 2 }}>
-                  AI declaration for this date: <strong>{day.isAiUsed ? `Yes — ${day.aiToolName}` : 'No'}</strong>
-                </Alert>
-              )}
-            </CardContent>
-          </Card>
+            {day?.isAiUsed !== null && day?.isAiUsed !== undefined && (
+              <Box sx={{ px: 3, pb: 3, pt: 2 }}>
+                <Stack
+                  direction="row" spacing={1.5} alignItems="center"
+                  sx={{
+                    p: 1.5, borderRadius: 2.5,
+                    bgcolor: day.isAiUsed ? COLORS.successLight : COLORS.surface,
+                    border: `1px solid ${day.isAiUsed ? '#BBF7D0' : COLORS.border}`,
+                  }}
+                >
+                  <Sparkles size={16} color={day.isAiUsed ? COLORS.success : COLORS.textSecondary} aria-hidden="true" />
+                  <Typography variant="body2">
+                    AI declaration for this date:{' '}
+                    <strong>{day.isAiUsed ? `Yes — ${day.aiToolName}` : 'No'}</strong>
+                  </Typography>
+                </Stack>
+              </Box>
+            )}
+          </SectionCard>
         </Grid>
       </Grid>
+
+      <ConfirmDialog
+        open={Boolean(pendingRemoval)}
+        onClose={() => setPendingRemoval(null)}
+        title="Remove this entry?"
+        message={pendingRemoval
+          ? `The ${pendingRemoval.projectName ?? 'No Work Done'} entry for ${dayjs(workDate).format('DD MMM YYYY')} will be removed. This cannot be undone.`
+          : ''}
+        confirmLabel="Remove entry"
+        onConfirm={confirmRemoval}
+      />
 
       <Snackbar open={Boolean(toast)} autoHideDuration={4000} onClose={() => setToast(null)}
         message={toast} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }} />

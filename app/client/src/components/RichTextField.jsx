@@ -1,9 +1,7 @@
-import { useEffect, useRef } from 'react';
-import { Box, Button, FormHelperText, Stack, Typography } from '@mui/material';
-import FormatBoldIcon from '@mui/icons-material/FormatBold';
-import FormatItalicIcon from '@mui/icons-material/FormatItalic';
-import FormatListBulletedIcon from '@mui/icons-material/FormatListBulleted';
-import FormatListNumberedIcon from '@mui/icons-material/FormatListNumbered';
+import { useEffect, useRef, useState } from 'react';
+import { Box, FormHelperText, IconButton, Stack, Tooltip, Typography } from '@mui/material';
+import { Bold, Italic, List, ListOrdered } from 'lucide-react';
+import { COLORS, RADIUS, SHADOWS } from '../theme/tokens';
 
 /**
  * Minimal dependency-free rich text field built on contentEditable.
@@ -32,6 +30,10 @@ import FormatListNumberedIcon from '@mui/icons-material/FormatListNumbered';
  */
 export default function RichTextField({ label, value, onChange, disabled, error, placeholder }) {
   const ref = useRef(null);
+
+  // Presentation only: drives the focus ring on the wrapper, so the editor matches the focus
+  // treatment of the MUI inputs around it. It never touches the editor's content.
+  const [focused, setFocused] = useState(false);
 
   // Mirrors what we last handed to the parent, so an echo of our own value is not written back.
   const lastEmitted = useRef(value ?? '');
@@ -77,60 +79,88 @@ export default function RichTextField({ label, value, onChange, disabled, error,
 
   const isEmpty = !value || value === '<br>' || value === '<div><br></div>';
 
+  const borderColour = error ? COLORS.danger : focused ? COLORS.primary : COLORS.border;
+
   return (
     <Box>
-      <Typography variant="body2" sx={{ mb: 0.5 }}>{label}{!disabled && ' *'}</Typography>
+      <Typography variant="subtitle2" sx={{ mb: 0.75, color: 'text.secondary' }}>
+        {label}{!disabled && ' *'}
+      </Typography>
 
-      <Stack direction="row" spacing={0.5} sx={{ mb: 0.5 }}>
-        {[['bold', FormatBoldIcon], ['italic', FormatItalicIcon],
-          ['insertUnorderedList', FormatListBulletedIcon], ['insertOrderedList', FormatListNumberedIcon]]
-          .map(([command, Icon]) => (
-            <Button key={command} size="small" variant="outlined" disabled={disabled}
-              // onMouseDown + preventDefault keeps focus (and the selection) inside the editor;
-              // onClick would blur it first and the command would apply to nothing.
-              onMouseDown={(e) => { e.preventDefault(); exec(command); }}
-              sx={{ minWidth: 34, px: 0.5 }}>
-              <Icon fontSize="small" />
-            </Button>
-          ))}
-      </Stack>
-
+      {/*  Toolbar and editor share one bordered container so the control reads as a single field,
+           the way the outlined text inputs beside it do.  */}
       <Box
-        ref={ref}
-        component="div"
-        contentEditable={!disabled}
-        suppressContentEditableWarning
-        role="textbox"
-        aria-multiline="true"
-        aria-label={label}
-        data-placeholder={placeholder ?? 'Describe the work you completed...'}
-        onInput={emit}
-        onBlur={emit}
-        onPaste={handlePaste}
-        /*  NOTE: deliberately NO dangerouslySetInnerHTML and NO children.
-            React must never re-render the contents of this node; see the header comment. */
         sx={{
-          minHeight: 120,
-          p: 1.5,
-          borderRadius: 1,
-          overflowY: 'auto',
-          direction: 'ltr',          // explicit: never inherit an RTL direction from a parent
-          textAlign: 'left',
-          unicodeBidi: 'normal',
-          whiteSpace: 'pre-wrap',    // preserve the user's spacing and newlines
-          border: (theme) => `1px solid ${error ? theme.palette.error.main : theme.palette.divider}`,
-          bgcolor: disabled ? 'action.disabledBackground' : 'background.paper',
-          color: disabled ? 'text.disabled' : 'text.primary',
-          '&:focus': { outline: (theme) => `2px solid ${theme.palette.primary.main}`, outlineOffset: -1 },
-          '&:empty:before': {
-            content: 'attr(data-placeholder)',
-            color: 'text.disabled',
-            pointerEvents: 'none',
-          },
-          '& p': { m: 0 },
-          '& ul, & ol': { my: 0, pl: 3 },
+          border: `1px solid ${borderColour}`,
+          borderRadius: `${RADIUS.control}px`,
+          overflow: 'hidden',
+          bgcolor: disabled ? COLORS.surface : COLORS.card,
+          boxShadow: focused && !error ? SHADOWS.focusRing : 'none',
+          transition: 'border-color .15s ease, box-shadow .15s ease',
         }}
-      />
+      >
+        <Stack
+          direction="row"
+          spacing={0.25}
+          sx={{ px: 1, py: 0.75, borderBottom: `1px solid ${COLORS.border}`, bgcolor: COLORS.surface }}
+        >
+          {[['bold', Bold, 'Bold'], ['italic', Italic, 'Italic'],
+            ['insertUnorderedList', List, 'Bulleted list'], ['insertOrderedList', ListOrdered, 'Numbered list']]
+            .map(([command, Icon, title]) => (
+              <Tooltip key={command} title={title}>
+                <span>
+                  <IconButton
+                    size="small" disabled={disabled} aria-label={title}
+                    // onMouseDown + preventDefault keeps focus (and the selection) inside the editor;
+                    // onClick would blur it first and the command would apply to nothing.
+                    onMouseDown={(e) => { e.preventDefault(); exec(command); }}
+                    sx={{ width: 30, height: 30, color: 'text.secondary', '&:hover': { color: 'text.primary' } }}
+                  >
+                    <Icon size={15} />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            ))}
+        </Stack>
+
+        <Box
+          ref={ref}
+          component="div"
+          contentEditable={!disabled}
+          suppressContentEditableWarning
+          role="textbox"
+          aria-multiline="true"
+          aria-label={label}
+          data-placeholder={placeholder ?? 'Describe the work you completed...'}
+          onInput={emit}
+          onFocus={() => setFocused(true)}
+          onBlur={() => { setFocused(false); emit(); }}
+          onPaste={handlePaste}
+          /*  NOTE: deliberately NO dangerouslySetInnerHTML and NO children.
+              React must never re-render the contents of this node; see the header comment. */
+          sx={{
+            minHeight: 132,
+            p: 1.75,
+            overflowY: 'auto',
+            direction: 'ltr',          // explicit: never inherit an RTL direction from a parent
+            textAlign: 'left',
+            unicodeBidi: 'normal',
+            whiteSpace: 'pre-wrap',    // preserve the user's spacing and newlines
+            fontSize: 14,
+            lineHeight: 1.55,
+            color: disabled ? 'text.disabled' : 'text.primary',
+            // The wrapper carries the focus treatment, so the node itself must not draw its own.
+            '&:focus': { outline: 'none' },
+            '&:empty:before': {
+              content: 'attr(data-placeholder)',
+              color: COLORS.textTertiary,
+              pointerEvents: 'none',
+            },
+            '& p': { m: 0 },
+            '& ul, & ol': { my: 0, pl: 3 },
+          }}
+        />
+      </Box>
 
       {error
         ? <FormHelperText error>{error}</FormHelperText>

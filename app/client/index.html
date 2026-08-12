@@ -3,7 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Employee Daily Status Report and Resource Tracking Management System" />
+    <!-- Tints the browser/OS chrome on mobile to match the sidebar. -->
+    <meta name="theme-color" content="#0F172A" />
     <title>DSR &amp; Resource Management</title>
+    <style>
+      /*  Paints the app background before React mounts. Without this the browser shows white for
+          the moment between first paint and hydration, which reads as a flash against the slate
+          background the application actually uses.  */
+      html, body, #root { height: 100%; }
+      body { margin: 0; background-color: #F8FAFC; }
+    </style>
   </head>
   <body>
     <div id="root"></div>
