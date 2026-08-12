@@ -62,8 +62,27 @@ GO
 
 /*----------------------------------------------------------------------------------------------
   Rebuild the trigger without the two hours ceilings.
+
+  DROP-then-CREATE rather than CREATE OR ALTER, deliberately.
+
+  CREATE OR ALTER requires SQL Server 2016 SP1 or later. The server here is 2025, so it EXECUTES
+  fine -- but the design-time T-SQL parser in Visual Studio / older SSDT targets an earlier
+  version, rejects it, and then loses its place in the file. Once desynced the parser no longer
+  knows it is inside a trigger body, so it misreads the BEGIN further down as the start of
+  BEGIN TRANSACTION and reports:
+
+      Incorrect syntax near 'THROW'. Expecting CONVERSATION, DIALOG, DISTRIBUTED, or TRANSACTION.
+      Incorrect syntax near 'GO'.    Expecting CONVERSATION.
+
+  Those THROW/GO errors are CASCADING noise, not defects -- THROW is valid from SQL Server 2012.
+  Removing the one unsupported construct clears all of them, and this pattern is just as
+  idempotent and re-runnable.
 ----------------------------------------------------------------------------------------------*/
-CREATE OR ALTER TRIGGER dsr.trg_DSREntries_DailyRules
+IF OBJECT_ID(N'dsr.trg_DSREntries_DailyRules', N'TR') IS NOT NULL
+    DROP TRIGGER dsr.trg_DSREntries_DailyRules;
+GO
+
+CREATE TRIGGER dsr.trg_DSREntries_DailyRules
 ON dsr.DSREntries
 AFTER INSERT, UPDATE
 AS
