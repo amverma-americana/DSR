@@ -68,10 +68,15 @@ export default function DsrDetailsPage() {
 
   useEffect(() => {
     usersApi.team().then(setEmployees).catch(() => {});
-    usersApi.managers().then(setManagers).catch(() => {});
     projectsApi.search({ pageSize: 200 }).then((r) => setProjects(r.items)).catch(() => {});
-    mastersApi.departments().then(setDepartments).catch(() => {});
-    mastersApi.workCategories().then(setCategories).catch(() => {});
+
+    /*  Disabled alongside their filter controls (see the commented Department / Manager and
+        Work category blocks below). Nothing reads these lists while those controls are hidden,
+        so fetching them would be three wasted round trips on every page load. Re-enable the
+        matching fetch when re-enabling a control. */
+    // usersApi.managers().then(setManagers).catch(() => {});
+    // mastersApi.departments().then(setDepartments).catch(() => {});
+    // mastersApi.workCategories().then(setCategories).catch(() => {});
   }, []);
 
   // Strip empty strings so the API receives absent filters rather than blanks.
@@ -216,6 +221,17 @@ export default function DsrDetailsPage() {
                 <TextField label="Employee code" fullWidth size="small" value={filter.employeeCode} onChange={set('employeeCode')} />
               </Grid>
               */}
+              {/* ---------------------------------------------------------------------------
+                  HIDDEN BY REQUEST: Department and Manager dropdowns.
+
+                  The API still accepts departmentId and managerUserId, the filter state still
+                  carries both keys, and the Department-wise / Manager-wise roll-up TABS continue
+                  to work -- they group by those dimensions rather than filtering on them. To
+                  restore either control, uncomment the block below AND the matching lookup fetch
+                  in the useEffect above (both were disabled together to avoid two pointless API
+                  calls on every page load).
+                  --------------------------------------------------------------------------- */}
+              {/*
               <Grid item xs={12} sm={6} md={2}>
                 <TextField select label="Department" fullWidth size="small" value={filter.departmentId} onChange={set('departmentId')}>
                   <MenuItem value="">All departments</MenuItem>
@@ -228,6 +244,7 @@ export default function DsrDetailsPage() {
                   {managers.map((m) => <MenuItem key={m.id} value={m.id}>{m.name}</MenuItem>)}
                 </TextField>
               </Grid>
+              */}
               <Grid item xs={12} sm={6} md={2}>
                 <TextField select label="Project" fullWidth size="small" value={filter.projectId} onChange={set('projectId')}>
                   <MenuItem value="">All projects</MenuItem>
@@ -286,13 +303,26 @@ export default function DsrDetailsPage() {
 
       {summary && (
         <Grid container spacing={1} sx={{ mb: 2 }}>
+          {/* ---------------------------------------------------------------------------------
+              Exactly the seven cards requested. The five commented entries below are still
+              returned by the API on DsrDetailReportSummaryDto, so restoring any of them is a
+              one-line uncomment -- no server change needed. Card widths are md={1} in a 12-column
+              grid, so seven cards sit comfortably on one row.
+              --------------------------------------------------------------------------------- */}
           {[
-            ['Entries', summary.totalEntries], ['Employees', summary.employeeCount],
-            ['Projects', summary.projectCount], ['Departments', summary.departmentCount],
-            ['Hours logged', summary.totalHoursLogged], ['Estimated', summary.totalEstimatedHours],
-            ['Remaining', summary.totalRemainingHours], ['Pending', summary.pendingApprovalCount],
-            ['Approved', summary.approvedCount], ['Returned', summary.returnedCount],
-            ['No work', summary.noWorkDoneCount], ['AI adoption', `${summary.aiAdoptionPct}%`],
+            ['Entries', summary.totalEntries],
+            ['Employees', summary.employeeCount],
+            ['Projects', summary.projectCount],
+            ['Departments', summary.departmentCount],
+            ['Hours logged', summary.totalHoursLogged],
+            ['Estimated', summary.totalEstimatedHours],
+            ['AI adoption', `${summary.aiAdoptionPct}%`],
+
+            // ['Remaining', summary.totalRemainingHours],
+            // ['Pending', summary.pendingApprovalCount],
+            // ['Approved', summary.approvedCount],
+            // ['Returned', summary.returnedCount],
+            // ['No work', summary.noWorkDoneCount],
           ].map(([label, value]) => (
             <Grid item xs={6} sm={3} md={1} key={label}>
               <Card sx={{ p: 1, textAlign: 'center' }}>
@@ -334,9 +364,26 @@ export default function DsrDetailsPage() {
                         indeterminate={selected.length > 0 && selected.length < rows.length}
                         onChange={(e) => setSelected(e.target.checked ? rows.map((r) => r.dsrEntryId) : [])} />
                     </TableCell>
-                    {['Employee', 'Code', 'Department', 'Manager', 'Project', 'Task', 'Category',
-                      'Logged', 'Est.', 'Rem.', 'DSR Date', 'Submitted', 'Status', 'Approved By'].map((h) => (
-                        <TableCell key={h}>{h}</TableCell>))}
+                    {/* ---------------------------------------------------------------------
+                        Columns hidden by request: Code, Department, Manager, Project Code,
+                        Category, Remaining Hours, Status and Approved By.
+
+                        Designation, Project Start, Project End and Project Status were never
+                        rendered in this grid, so there was nothing to hide for those four --
+                        they remain available on the API response and in vw_DsrDetailReport.
+                        --------------------------------------------------------------------- */}
+                    {/* Project and DSR Date are auto-width: the Table uses the default
+                        table-layout:auto, so whiteSpace:nowrap makes the browser widen each of
+                        those columns to fit its longest value instead of wrapping it. Task keeps
+                        its maxWidth/noWrap, which is what frees up the space for them to grow. */}
+                    {[['Employee', false], ['Project', true], ['Task', false],
+                      /* ['Category', false], */
+                      ['Logged', false], ['Est.', false], ['DSR Date', true],
+                      ['Submitted', false]].map(([h, autoWidth]) => (
+                        <TableCell key={h} sx={autoWidth ? { whiteSpace: 'nowrap', width: 'auto' } : undefined}>
+                          {h}
+                        </TableCell>))}
+                    {/* 'Code', 'Department', 'Manager', 'Rem.', 'Status', 'Approved By' */}
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -351,12 +398,15 @@ export default function DsrDetailsPage() {
                         <Typography variant="body2">{r.employeeName}</Typography>
                         <Typography variant="caption" color="text.secondary">{r.employeeEmail}</Typography>
                       </TableCell>
+                      {/* Code / Department / Manager columns hidden by request */}
+                      {/*
                       <TableCell>{r.employeeCode ?? '—'}</TableCell>
                       <TableCell>{r.departmentName ?? '—'}</TableCell>
                       <TableCell>{r.managerName ?? '—'}</TableCell>
-                      <TableCell>
-                        <Typography variant="body2">{r.projectName ?? '—'}</Typography>
-                        <Typography variant="caption" color="text.secondary">{r.projectCode}</Typography>
+                      */}
+                      <TableCell sx={{ whiteSpace: 'nowrap', width: 'auto' }}>
+                        {/* Project code subtitle hidden by request; project name retained. */}
+                        <Typography variant="body2" noWrap>{r.projectName ?? '—'}</Typography>
                       </TableCell>
                       <TableCell sx={{ maxWidth: 240 }}>
                         {r.isNoWorkDone
@@ -365,12 +415,26 @@ export default function DsrDetailsPage() {
                               <Typography variant="body2" noWrap>{r.taskDescription}</Typography>
                             </Tooltip>}
                       </TableCell>
-                      <TableCell>{r.workCategoryName ?? '—'}</TableCell>
+                      {/* Category column hidden by request. workCategoryName is still returned by
+                          the API and still drives the Work-Category grouped tab and the filters. */}
+                      {/* <TableCell>{r.workCategoryName ?? '—'}</TableCell> */}
                       <TableCell align="right">{r.hoursLogged}</TableCell>
                       <TableCell align="right">{r.estimatedHours}</TableCell>
-                      <TableCell align="right">{r.remainingHours}</TableCell>
-                      <TableCell>{dayjs(r.dsrDate).format('DD MMM YY')}</TableCell>
+                      <TableCell sx={{ whiteSpace: 'nowrap', width: 'auto' }}>
+                        {dayjs(r.dsrDate).format('DD MMM YY')}
+                      </TableCell>
                       <TableCell>{r.submissionDate ? dayjs(r.submissionDate).format('DD MMM HH:mm') : '—'}</TableCell>
+                      {/* --------------------------------------------------------------------
+                          Remaining Hours, Status and Approved By hidden by request.
+
+                          Note: the Approve / Return buttons above still work on the selected
+                          rows, but with the Status column hidden there is no longer any visual
+                          confirmation of the outcome in this grid. The Approval Status TAB still
+                          shows the breakdown, and uncommenting the Status cell below restores
+                          per-row feedback.
+                          -------------------------------------------------------------------- */}
+                      {/*
+                      <TableCell align="right">{r.remainingHours}</TableCell>
                       <TableCell>
                         <Chip size="small" label={r.approvalStatus} color={STATUS_COLOUR[r.statusCode] ?? 'default'} />
                         {r.reviewComments && (
@@ -387,6 +451,7 @@ export default function DsrDetailsPage() {
                             {dayjs(r.approvalDate).format('DD MMM HH:mm')}
                           </Typography>)}
                       </TableCell>
+                      */}
                     </TableRow>
                   ))}
                 </TableBody>

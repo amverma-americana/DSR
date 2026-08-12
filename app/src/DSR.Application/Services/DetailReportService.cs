@@ -377,6 +377,21 @@ public class DetailReportService(
         using var workbook = new XLWorkbook();
         var sheet = workbook.Worksheets.Add("DSR Details");
 
+        /*  EXPORT CONTRACT -- exactly six columns, in this order, using REPORT ALIASES rather than
+            database or DTO field names:
+
+                Task Entry Date | Resource | Project | Task Description | Estimated Hours | Hours Logged
+
+            Aliases map to: EmployeeName -> "Resource", ProjectName -> "Project". The remaining 21
+            columns of the previous layout are retained in the commented block below so the full
+            export can be restored without reconstructing it. Nothing on the API or the view was
+            removed -- every field is still returned by /admin-reports/dsr-details.               */
+        string[] headers =
+        [
+            "Task Entry Date", "Resource", "Project", "Task Description", "Estimated Hours", "Hours Logged"
+        ];
+
+        /* Previous 27-column layout, disabled by request:
         string[] headers =
         [
             "Employee Name", "Employee Code", "Email", "Department", "Designation", "Manager",
@@ -385,6 +400,7 @@ public class DetailReportService(
             "DSR Date", "Submission Date", "DSR Status", "Approval Status", "Approved By", "Approval Date",
             "Review Comments", "No Work Done", "AI Used", "AI Tool"
         ];
+        */
 
         for (var c = 0; c < headers.Length; c++) sheet.Cell(1, c + 1).Value = headers[c];
 
@@ -397,43 +413,49 @@ public class DetailReportService(
         var r = 2;
         foreach (var row in report.Rows.Items)
         {
-            sheet.Cell(r, 1).Value = row.EmployeeName;
-            sheet.Cell(r, 2).Value = row.EmployeeCode;
-            sheet.Cell(r, 3).Value = row.EmployeeEmail;
-            sheet.Cell(r, 4).Value = row.DepartmentName;
-            sheet.Cell(r, 5).Value = row.Designation;
-            sheet.Cell(r, 6).Value = row.ManagerName;
-            sheet.Cell(r, 7).Value = row.ProjectName;
-            sheet.Cell(r, 8).Value = row.ProjectCode;
-            sheet.Cell(r, 9).Value = row.ProjectStartDate?.ToDateTime(TimeOnly.MinValue);
-            sheet.Cell(r, 10).Value = row.ProjectEndDate?.ToDateTime(TimeOnly.MinValue);
-            sheet.Cell(r, 11).Value = row.ProjectStatus;
-            sheet.Cell(r, 12).Value = row.TaskDescription;
-            sheet.Cell(r, 13).Value = row.WorkCategoryName;
-            sheet.Cell(r, 14).Value = row.HoursLogged;
-            sheet.Cell(r, 15).Value = row.EstimatedHours;
-            sheet.Cell(r, 16).Value = row.RemainingHours;
-            sheet.Cell(r, 17).Value = row.TaskEntryDate;
-            sheet.Cell(r, 18).Value = row.DsrDate.ToDateTime(TimeOnly.MinValue);
-            sheet.Cell(r, 19).Value = row.SubmissionDate;
-            sheet.Cell(r, 20).Value = row.StatusCode;
-            sheet.Cell(r, 21).Value = row.ApprovalStatus;
-            sheet.Cell(r, 22).Value = row.ApprovedBy;
-            sheet.Cell(r, 23).Value = row.ApprovalDate;
-            sheet.Cell(r, 24).Value = row.ReviewComments;
-            sheet.Cell(r, 25).Value = row.IsNoWorkDone ? "Yes" : "No";
-            sheet.Cell(r, 26).Value = row.IsAiUsed is null ? "" : (row.IsAiUsed.Value ? "Yes" : "No");
-            sheet.Cell(r, 27).Value = row.AiToolName;
+            sheet.Cell(r, 1).Value = row.TaskEntryDate;      // Task Entry Date
+            sheet.Cell(r, 2).Value = row.EmployeeName;       // Resource
+            sheet.Cell(r, 3).Value = row.ProjectName;        // Project
+            sheet.Cell(r, 4).Value = row.TaskDescription;    // Task Description
+            sheet.Cell(r, 5).Value = row.EstimatedHours;     // Estimated Hours
+            sheet.Cell(r, 6).Value = row.HoursLogged;        // Hours Logged
             r++;
         }
 
-        foreach (var col in new[] { 9, 10, 18 }) sheet.Column(col).Style.DateFormat.Format = "dd-MMM-yyyy";
-        foreach (var col in new[] { 17, 19, 23 }) sheet.Column(col).Style.DateFormat.Format = "dd-MMM-yyyy HH:mm";
-        foreach (var col in new[] { 14, 15, 16 }) sheet.Column(col).Style.NumberFormat.Format = "0.00";
+        /* Previous 27-column row writer, disabled by request:
+        sheet.Cell(r, 1).Value = row.EmployeeName;      sheet.Cell(r, 2).Value = row.EmployeeCode;
+        sheet.Cell(r, 3).Value = row.EmployeeEmail;     sheet.Cell(r, 4).Value = row.DepartmentName;
+        sheet.Cell(r, 5).Value = row.Designation;       sheet.Cell(r, 6).Value = row.ManagerName;
+        sheet.Cell(r, 7).Value = row.ProjectName;       sheet.Cell(r, 8).Value = row.ProjectCode;
+        sheet.Cell(r, 9).Value = row.ProjectStartDate?.ToDateTime(TimeOnly.MinValue);
+        sheet.Cell(r, 10).Value = row.ProjectEndDate?.ToDateTime(TimeOnly.MinValue);
+        sheet.Cell(r, 11).Value = row.ProjectStatus;    sheet.Cell(r, 12).Value = row.TaskDescription;
+        sheet.Cell(r, 13).Value = row.WorkCategoryName; sheet.Cell(r, 14).Value = row.HoursLogged;
+        sheet.Cell(r, 15).Value = row.EstimatedHours;   sheet.Cell(r, 16).Value = row.RemainingHours;
+        sheet.Cell(r, 17).Value = row.TaskEntryDate;    sheet.Cell(r, 18).Value = row.DsrDate.ToDateTime(TimeOnly.MinValue);
+        sheet.Cell(r, 19).Value = row.SubmissionDate;   sheet.Cell(r, 20).Value = row.StatusCode;
+        sheet.Cell(r, 21).Value = row.ApprovalStatus;   sheet.Cell(r, 22).Value = row.ApprovedBy;
+        sheet.Cell(r, 23).Value = row.ApprovalDate;     sheet.Cell(r, 24).Value = row.ReviewComments;
+        sheet.Cell(r, 25).Value = row.IsNoWorkDone ? "Yes" : "No";
+        sheet.Cell(r, 26).Value = row.IsAiUsed is null ? "" : (row.IsAiUsed.Value ? "Yes" : "No");
+        sheet.Cell(r, 27).Value = row.AiToolName;
+        */
+
+        // Column 1 carries a timestamp; columns 5 and 6 are hours to two decimals.
+        sheet.Column(1).Style.DateFormat.Format = "dd-MMM-yyyy HH:mm";
+        foreach (var col in new[] { 5, 6 }) sheet.Column(col).Style.NumberFormat.Format = "0.00";
 
         if (r > 2) sheet.Range(1, 1, r - 1, headers.Length).SetAutoFilter();
         sheet.Columns().AdjustToContents(1, 40D, 55D);
 
+        /*  The "By Project" and "Summary" sheets are disabled by request: the export must contain
+            only the six columns above, and those sheets introduce their own column sets.
+
+            Disabled with a preprocessor directive rather than a block comment, because both blocks
+            already contain block comments and C# does not permit nesting them. Flip the directive
+            below to "#if true" to restore both sheets exactly as they were; byProject and filter
+            are still passed in for that reason. */
+#if false
         /* ---- Sheet 2: project roll-up (project, tasks logged against it, hours) ------------- */
         var proj = workbook.Worksheets.Add("By Project");
         string[] projHeaders = ["Project", "Code / Status", "Task entries", "Contributors", "Days", "Hours logged", "Estimated hours", "Avg hours/day", "Share %"];
@@ -508,35 +530,49 @@ public class DetailReportService(
             s.Cell(i + 2, 2).Value = XLCellValue.FromObject(stats[i].Value);
         }
         s.Columns().AdjustToContents();
+#endif
 
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
         return stream.ToArray();
     }
 
+    /// <summary>
+    /// CSV mirrors the Excel layout exactly: the same six alias columns in the same order. The two
+    /// formats describe one report, so letting them diverge would mean "export CSV" and "export
+    /// Excel" quietly returned different things.
+    /// </summary>
     private static byte[] BuildCsv(DsrDetailReportDto report)
     {
         var sb = new StringBuilder();
         sb.AppendLine(string.Join(',', new[]
         {
-            "Employee Name", "Employee Code", "Email", "Department", "Designation", "Manager",
-            "Project Name", "Project Code", "Project Start", "Project End", "Project Status",
-            "Task Description", "Work Category", "Hours Logged", "Estimated Hours", "Remaining Hours",
-            "Task Entry Date", "DSR Date", "Submission Date", "DSR Status", "Approval Status",
-            "Approved By", "Approval Date", "Review Comments", "No Work Done", "AI Used", "AI Tool"
+            "Task Entry Date", "Resource", "Project", "Task Description", "Estimated Hours", "Hours Logged"
         }.Select(Escape)));
 
         foreach (var row in report.Rows.Items)
         {
             sb.AppendLine(string.Join(',', new object?[]
             {
-                row.EmployeeName, row.EmployeeCode, row.EmployeeEmail, row.DepartmentName, row.Designation, row.ManagerName,
-                row.ProjectName, row.ProjectCode, row.ProjectStartDate, row.ProjectEndDate, row.ProjectStatus,
-                row.TaskDescription, row.WorkCategoryName, row.HoursLogged, row.EstimatedHours, row.RemainingHours,
-                row.TaskEntryDate, row.DsrDate, row.SubmissionDate, row.StatusCode, row.ApprovalStatus,
-                row.ApprovedBy, row.ApprovalDate, row.ReviewComments, row.IsNoWorkDone, row.IsAiUsed, row.AiToolName
+                row.TaskEntryDate, row.EmployeeName, row.ProjectName,
+                row.TaskDescription, row.EstimatedHours, row.HoursLogged
             }.Select(Escape)));
         }
+
+        /* Previous 27-column CSV layout, disabled by request:
+        headers: Employee Name, Employee Code, Email, Department, Designation, Manager, Project Name,
+                 Project Code, Project Start, Project End, Project Status, Task Description,
+                 Work Category, Hours Logged, Estimated Hours, Remaining Hours, Task Entry Date,
+                 DSR Date, Submission Date, DSR Status, Approval Status, Approved By, Approval Date,
+                 Review Comments, No Work Done, AI Used, AI Tool
+        values : row.EmployeeName, row.EmployeeCode, row.EmployeeEmail, row.DepartmentName,
+                 row.Designation, row.ManagerName, row.ProjectName, row.ProjectCode,
+                 row.ProjectStartDate, row.ProjectEndDate, row.ProjectStatus, row.TaskDescription,
+                 row.WorkCategoryName, row.HoursLogged, row.EstimatedHours, row.RemainingHours,
+                 row.TaskEntryDate, row.DsrDate, row.SubmissionDate, row.StatusCode,
+                 row.ApprovalStatus, row.ApprovedBy, row.ApprovalDate, row.ReviewComments,
+                 row.IsNoWorkDone, row.IsAiUsed, row.AiToolName
+        */
 
         // UTF-8 BOM so Excel opens non-ASCII names correctly.
         return Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
