@@ -142,10 +142,16 @@ export const reportsApi = {
 export const adminReportsApi = {
   dsrDetails: (f) => unwrap(api.get('/admin-reports/dsr-details', { params: f })),
   grouped: (groupBy, f) => unwrap(api.get(`/admin-reports/grouped/${groupBy}`, { params: f })),
-  approvalStatus: (f) => unwrap(api.get('/admin-reports/approval-status', { params: f })),
   noWorkDone: (f) => unwrap(api.get('/admin-reports/no-work-done', { params: f })),
   missingDsr: (f) => unwrap(api.get('/admin-reports/missing-dsr', { params: f })),
-  review: (payload) => unwrap(api.post('/admin-reports/review', payload)),
+
+  /*  Approval workflow disabled as per current business requirement.
+      All DSR entries are treated as automatically approved.
+
+      Both server endpoints are commented out too, so leaving these callable would produce a 404
+      that surfaces to the user as a generic failure. They are disabled together on purpose.  */
+  // approvalStatus: (f) => unwrap(api.get('/admin-reports/approval-status', { params: f })),
+  // review: (payload) => unwrap(api.post('/admin-reports/review', payload)),
   exportReport: async (format, filter) => {
     const response = await api.get(`/admin-reports/export/${format}`, { params: filter, responseType: 'blob' });
     const url = URL.createObjectURL(response.data);

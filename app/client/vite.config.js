@@ -42,4 +42,17 @@ export default defineConfig({
   },
 
   build: { outDir: 'dist', sourcemap: true },
+
+  /*  Test runner configuration for the render smoke tests (src/__tests__).
+
+      These exist because a Vite build only proves the code COMPILES. A redesign that touches every
+      page can compile perfectly and still throw on mount -- a bad import, a null field read, a
+      component used with the wrong props. The smoke tests mount each page against a mocked API and
+      assert it renders, which is the cheapest way to catch that class of failure without a browser. */
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: './src/__tests__/setup.js',
+    include: ['src/**/*.test.{js,jsx}'],
+  },
 });

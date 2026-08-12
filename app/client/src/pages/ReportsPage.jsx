@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Alert, Box, Button, Card, CardContent, Chip, Grid, LinearProgress, Stack, Tab, Table, TableBody,
-  TableCell, TableContainer, TableHead, TableRow, Tabs, TextField, Typography,
+  Alert, Box, Button, Card, Chip, Grid, LinearProgress, Stack, Tab, Table, TableBody, TableCell,
+  TableContainer, TableHead, TableRow, Tabs, TextField, Typography,
 } from '@mui/material';
-import DownloadIcon from '@mui/icons-material/Download';
+import { BarChart3, Download, Sparkles } from 'lucide-react';
 import dayjs from 'dayjs';
 import { reportsApi } from '../api/client';
+import PageHeader from '../components/PageHeader';
+import FilterPanel from '../components/FilterPanel';
+import SectionCard from '../components/SectionCard';
+import StatCard from '../components/StatCard';
+import EmptyState from '../components/EmptyState';
+import { DonutChart } from '../components/Charts';
 
 /**
  * All six reports plus the missing-DSR compliance view behind one shared filter bar, matching the
@@ -106,78 +112,123 @@ export default function ReportsPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  const setRange = (fromDate, toDate) => setFilter((f) => ({ ...f, fromDate, toDate }));
+
   return (
     <Box>
-      <Typography variant="h5" gutterBottom>Reports</Typography>
+      <PageHeader
+        title="Reports"
+        description="Effort, utilisation and compliance across the period you select."
+        actions={(
+          <Button
+            variant="outlined"
+            startIcon={<Download size={16} />}
+            onClick={() => reportsApi.exportCsv(report.exportKey, params).catch((e) => setError(e.message))}
+          >
+            Export CSV
+          </Button>
+        )}
+      />
 
-      <Card sx={{ mb: 2 }}>
-        <CardContent>
-          <Grid container spacing={2} alignItems="center">
-            <Grid item xs={12} sm={4} md={3}>
-              <TextField label="From" type="date" fullWidth size="small" InputLabelProps={{ shrink: true }}
-                value={filter.fromDate} onChange={(e) => setFilter((f) => ({ ...f, fromDate: e.target.value }))} />
-            </Grid>
-            <Grid item xs={12} sm={4} md={3}>
-              <TextField label="To" type="date" fullWidth size="small" InputLabelProps={{ shrink: true }}
-                value={filter.toDate} onChange={(e) => setFilter((f) => ({ ...f, toDate: e.target.value }))} />
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <Stack direction="row" spacing={1} justifyContent={{ md: 'flex-end' }}>
-                <Button size="small" onClick={() => setFilter((f) => ({
-                  ...f, fromDate: dayjs().startOf('month').format('YYYY-MM-DD'), toDate: dayjs().format('YYYY-MM-DD'),
-                }))}>This month</Button>
-                <Button size="small" onClick={() => setFilter((f) => ({
-                  ...f,
-                  fromDate: dayjs().subtract(1, 'month').startOf('month').format('YYYY-MM-DD'),
-                  toDate: dayjs().subtract(1, 'month').endOf('month').format('YYYY-MM-DD'),
-                }))}>Last month</Button>
-                <Button size="small" variant="outlined" startIcon={<DownloadIcon />}
-                  onClick={() => reportsApi.exportCsv(report.exportKey, params).catch((e) => setError(e.message))}>
-                  Export CSV
-                </Button>
-              </Stack>
-            </Grid>
+      <FilterPanel
+        title="Period"
+        appliedCount={0}
+        actions={(
+          <>
+            <Button
+              size="small" variant="text"
+              onClick={() => setRange(dayjs().startOf('month').format('YYYY-MM-DD'), dayjs().format('YYYY-MM-DD'))}
+            >
+              This month
+            </Button>
+            <Button
+              size="small" variant="text"
+              onClick={() => setRange(
+                dayjs().subtract(1, 'month').startOf('month').format('YYYY-MM-DD'),
+                dayjs().subtract(1, 'month').endOf('month').format('YYYY-MM-DD'),
+              )}
+            >
+              Last month
+            </Button>
+          </>
+        )}
+      >
+        <Grid container spacing={2}>
+          <Grid item xs={12} sm={6} lg={3}>
+            <TextField label="From" type="date" fullWidth InputLabelProps={{ shrink: true }}
+              value={filter.fromDate} onChange={(e) => setFilter((f) => ({ ...f, fromDate: e.target.value }))} />
           </Grid>
-        </CardContent>
-      </Card>
+          <Grid item xs={12} sm={6} lg={3}>
+            <TextField label="To" type="date" fullWidth InputLabelProps={{ shrink: true }}
+              value={filter.toDate} onChange={(e) => setFilter((f) => ({ ...f, toDate: e.target.value }))} />
+          </Grid>
+        </Grid>
+      </FilterPanel>
 
+      {/* ------------------------------------------------------------------ AI adoption */}
       {ai && (
-        <Grid container spacing={2} sx={{ mb: 2 }}>
-          <Grid item xs={12} md={4}>
-            <Card><CardContent>
-              <Typography variant="caption" color="text.secondary">AI ADOPTION (PERIOD)</Typography>
-              <Typography variant="h5">{ai.overallAdoptionPct}%</Typography>
-              <Typography variant="caption" color="text.secondary">
-                {ai.aiUsedDeclarations} of {ai.totalDeclarations} declarations
-              </Typography>
-            </CardContent></Card>
+        <Grid container spacing={2.5} sx={{ mb: 3 }}>
+          <Grid item xs={12} sm={6} lg={3}>
+            <StatCard
+              label="AI adoption" value={`${ai.overallAdoptionPct}%`} icon={Sparkles} tone="success"
+              caption={`${ai.aiUsedDeclarations} of ${ai.totalDeclarations} declarations`}
+            />
           </Grid>
-          <Grid item xs={12} md={8}>
-            <Card><CardContent>
-              <Typography variant="caption" color="text.secondary">TOOLS USED</Typography>
-              <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mt: 1, gap: 1 }}>
-                {ai.byTool.length === 0
-                  ? <Typography variant="body2" color="text.secondary">No AI usage recorded in this period.</Typography>
-                  : ai.byTool.map((t) => (
-                    <Chip key={t.aiToolId ?? t.toolName} label={`${t.toolName} — ${t.usageDayCount} day(s), ${t.sharePct}%`} size="small" />
-                  ))}
-              </Stack>
-            </CardContent></Card>
+          <Grid item xs={12} sm={6} lg={3}>
+            <StatCard
+              label="Declarations" value={ai.totalDeclarations} icon={BarChart3} tone="primary"
+              caption="In the selected period"
+            />
+          </Grid>
+          <Grid item xs={12} lg={6}>
+            <SectionCard title="Tools used" subtitle="Share of AI-assisted days">
+              {ai.byTool.length === 0 ? (
+                <EmptyState
+                  compact icon={Sparkles} title="No AI usage recorded"
+                  description="Nobody declared AI assistance in this period."
+                />
+              ) : (
+                <Grid container spacing={2} alignItems="center">
+                  <Grid item xs={12} sm={6}>
+                    <DonutChart
+                      data={ai.byTool.map((t) => ({ name: t.toolName, value: t.usageDayCount }))}
+                      height={190}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <Stack spacing={1}>
+                      {ai.byTool.map((t) => (
+                        <Stack key={t.aiToolId ?? t.toolName} direction="row" justifyContent="space-between" spacing={1}>
+                          <Typography variant="body2" noWrap>{t.toolName}</Typography>
+                          <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
+                            {t.usageDayCount} day(s) · {t.sharePct}%
+                          </Typography>
+                        </Stack>
+                      ))}
+                    </Stack>
+                  </Grid>
+                </Grid>
+              )}
+            </SectionCard>
           </Grid>
         </Grid>
       )}
 
+      {/* ------------------------------------------------------------------ report */}
       <Card>
-        <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="scrollable" scrollButtons="auto"
-          sx={{ borderBottom: 1, borderColor: 'divider' }}>
+        <Tabs
+          value={tab} onChange={(_, v) => setTab(v)} variant="scrollable" scrollButtons="auto"
+          aria-label="Report type"
+          sx={{ borderBottom: 1, borderColor: 'divider', px: 1 }}
+        >
           {REPORTS.map((r) => <Tab key={r.key} label={r.label} />)}
         </Tabs>
 
-        {loading && <LinearProgress />}
-        {error && <Alert severity="error" sx={{ m: 2 }}>{error}</Alert>}
+        {loading && <LinearProgress aria-label="Loading report" />}
+        {error && <Alert severity="error" sx={{ m: 3 }}>{error}</Alert>}
 
-        <TableContainer>
-          <Table size="small">
+        <TableContainer sx={{ maxHeight: 640 }}>
+          <Table size="small" stickyHeader>
             <TableHead>
               <TableRow>
                 {report.columns.map(([header, , align]) => (
@@ -186,22 +237,24 @@ export default function ReportsPage() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {rows.length ? rows.map((row, index) => (
+              {rows.map((row, index) => (
                 <TableRow key={row.userId ?? row.projectId ?? index} hover>
                   {report.columns.map(([header, render, align]) => (
                     <TableCell key={header} align={align ?? 'left'}>{render(row)}</TableCell>
                   ))}
                 </TableRow>
-              )) : !loading && (
-                <TableRow>
-                  <TableCell colSpan={report.columns.length}>
-                    <Alert severity="info" variant="outlined">No data for the selected period.</Alert>
-                  </TableCell>
-                </TableRow>
-              )}
+              ))}
             </TableBody>
           </Table>
         </TableContainer>
+
+        {!loading && rows.length === 0 && (
+          <EmptyState
+            icon={BarChart3}
+            title="No data for the selected period"
+            description="Widen the date range, or pick a different report from the tabs above."
+          />
+        )}
       </Card>
     </Box>
   );

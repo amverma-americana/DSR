@@ -38,12 +38,20 @@ public class AdminReportsController(IDetailReportService service) : ApiControlle
         string groupBy, [FromQuery] DsrDetailReportFilter filter, CancellationToken ct) =>
         Success(await service.GetGroupedReportAsync(groupBy, filter, ct));
 
+    // Approval workflow disabled as per current business requirement.
+    // All DSR entries are treated as automatically approved.
+    //
+    // This endpoint reported counts and ageing per approval state. With no workflow every row sits
+    // in the same state, so it would report "everything pending, nothing approved" -- actively
+    // misleading rather than merely redundant. Commented out with its UI tab.
+    /*
     /// <summary>Counts, hours and ageing per approval state.</summary>
     [HttpGet("approval-status")]
     [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<ApprovalStatusReportRowDto>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<IReadOnlyList<ApprovalStatusReportRowDto>>>> ApprovalStatus(
         [FromQuery] DsrDetailReportFilter filter, CancellationToken ct) =>
         Success(await service.GetApprovalStatusReportAsync(filter, ct));
+    */
 
     /// <summary>
     /// No Work Done report. A thin wrapper over the detail report with the flag forced on, so it
@@ -70,6 +78,19 @@ public class AdminReportsController(IDetailReportService service) : ApiControlle
         [FromQuery] DsrDetailReportFilter filter, CancellationToken ct) =>
         Success(await service.GetMissingDsrDetailAsync(filter, ct));
 
+    // ---------------------------------------------------------------------------------------------
+    // Approval workflow disabled as per current business requirement.
+    // All DSR entries are treated as automatically approved.
+    //
+    // The POST /api/admin-reports/review endpoint is the ONLY write path that ever changed a
+    // StatusCode, so with it commented out no entry can move off the default 'SUBMITTED' state.
+    // Nothing gates reporting or admin visibility on that column, which is why "automatically
+    // approved" needs no data change: logged hours are already visible the moment they are saved.
+    //
+    // To reactivate: uncomment this endpoint, ReviewAsync in IDetailReportService and
+    // DetailReportService, the ReviewDsrEntriesRequest DTO, and the client's adminReportsApi.review.
+    // ---------------------------------------------------------------------------------------------
+    /*
     /// <summary>Approve or return one or more DSR entries. Returning requires a comment.</summary>
     [HttpPost("review")]
     [ProducesResponseType(typeof(ApiResponse<int>), StatusCodes.Status200OK)]
@@ -80,6 +101,7 @@ public class AdminReportsController(IDetailReportService service) : ApiControlle
         var affected = await service.ReviewAsync(request, ct);
         return Success(affected, $"{affected} DSR entr{(affected == 1 ? "y" : "ies")} updated.");
     }
+    */
 
     /// <summary>
     /// Export the filtered detail report. format: xlsx | csv.
