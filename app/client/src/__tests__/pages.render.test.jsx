@@ -244,6 +244,30 @@ describe('page render smoke tests', () => {
     expect(screen.getByRole('button', { name: /^sign in$/i })).toBeDefined();
   });
 
+  it('LoginPage offers no SSO sign-in', async () => {
+    /*  SSO sign-in commented out from the UI as per current requirement. Asserting its ABSENCE so
+        an accidental uncomment, or a merge that restores it, fails here rather than silently
+        putting a non-functional Microsoft button back in front of users.  */
+    vi.doMock('../auth/AuthContext', async (importOriginal) => {
+      const actual = await importOriginal();
+      return { ...actual, useAuth: () => ({ signIn: vi.fn(), isAuthenticated: false, initialising: false }) };
+    });
+
+    const { default: LoginPage } = await import('../pages/LoginPage');
+    mount(<LoginPage />, '/login');
+
+    expect(screen.queryByRole('button', { name: /microsoft/i })).toBeNull();
+    expect(document.body.textContent).not.toMatch(/single sign-on|entra/i);
+
+    // The "or" divider went with it -- otherwise it dangles under the sign-in button.
+    expect(document.body.textContent).not.toMatch(/\bor\b\s*$/);
+
+    /*  Password sign-in is untouched. Matched exactly rather than with /password/i, which also
+        catches the show/hide toggle's aria-label ("Show password") and is ambiguous.  */
+    expect(screen.getByLabelText('Password')).toBeDefined();
+    expect(screen.getByRole('button', { name: /^sign in$/i })).toBeDefined();
+  });
+
   it('DashboardPage renders the employee view with KPI cards and a chart', async () => {
     mockAuth(['EMPLOYEE']);
     const { default: DashboardPage } = await import('../pages/DashboardPage');
