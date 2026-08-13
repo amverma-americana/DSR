@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import {
-  Alert, Box, Button, CircularProgress, Divider, InputAdornment, Stack, TextField, Typography,
+  Alert, Box, Button, CircularProgress, InputAdornment, Stack, TextField, Typography,
 } from '@mui/material';
+// `Divider` was used only by the commented-out SSO block; restore the import with it.
 import {
   BarChart3, CalendarCheck, Eye, EyeOff, Lock, LogIn, Mail, ShieldCheck, Timer,
 } from 'lucide-react';
@@ -11,13 +12,12 @@ import { useAuth } from '../auth/AuthContext';
 import { COLORS, SHADOWS, SIDEBAR } from '../theme/tokens';
 
 /**
- * Sign in. Two paths: email and password against the application database, and Microsoft Entra ID.
+ * Sign in with email and password against the application database.
  *
- * The Microsoft button is the one deliberately unfinished piece of the client: the API already
- * accepts an Entra token at POST /auth/sso-login, validates it against the tenant signing keys and
- * auto-provisions the user, so the remaining work is acquiring that token with @azure/msal-browser
- * and passing it to signInWithSso(). The button stays disabled until a client id is configured so
- * it can never fail silently.
+ * SSO sign-in commented out from the UI as per current requirement. The capability itself is
+ * untouched: POST /auth/sso-login still accepts an Entra token, validates it against the tenant
+ * signing keys and auto-provisions the user, and signInWithSso() is still on the auth context.
+ * Only the button that would have started that flow is hidden — see the commented block below.
  *
  * Layout is a two-panel split: brand and product context on the left, the form on the right. Below
  * the lg breakpoint the left panel is dropped entirely rather than stacked — on a phone it would
@@ -26,7 +26,11 @@ import { COLORS, SHADOWS, SIDEBAR } from '../theme/tokens';
 const HIGHLIGHTS = [
   { icon: CalendarCheck, title: 'Log effort in seconds', body: 'Record work against every project you contribute to, one entry at a time.' },
   { icon: BarChart3, title: 'Live utilisation', body: 'Capacity, logged hours and RAG status roll up as your team submits.' },
-  { icon: ShieldCheck, title: 'Enterprise sign-in', body: 'Database credentials or Microsoft Entra ID, with role-based access throughout.' },
+  /*  Wording follows the hidden SSO button: this panel previously read "Database credentials or
+      Microsoft Entra ID", which would now advertise a sign-in method the page no longer offers.
+      Restore the original line when the Microsoft button comes back.
+      body: 'Database credentials or Microsoft Entra ID, with role-based access throughout.'    */
+  { icon: ShieldCheck, title: 'Secure by default', body: 'Role-based access throughout, with every action checked server-side.' },
 ];
 
 export default function LoginPage() {
@@ -38,7 +42,9 @@ export default function LoginPage() {
   const location = useLocation();
   const { register, handleSubmit, formState: { errors } } = useForm();
 
-  const ssoConfigured = Boolean(import.meta.env.VITE_AZURE_CLIENT_ID);
+  // SSO sign-in commented out from the UI as per current requirement.
+  // Restore alongside the Microsoft button block further down.
+  // const ssoConfigured = Boolean(import.meta.env.VITE_AZURE_CLIENT_ID);
 
   if (initialising) return null;
   if (isAuthenticated) return <Navigate to={location.state?.from?.pathname ?? '/dashboard'} replace />;
@@ -204,6 +210,19 @@ export default function LoginPage() {
             </Button>
           </Stack>
 
+          {/* ---------------------------------------------------------------------------------
+              SSO sign-in commented out from the UI as per current requirement.
+
+              The whole block goes together -- the "or" divider, the Microsoft button and the
+              "not configured" caption. Leaving the divider behind would print a dangling "or"
+              under the sign-in button with nothing following it.
+
+              Nothing server-side is affected: POST /auth/sso-login still exists and still
+              validates Entra tokens, and signInWithSso() remains on the auth context. Only the
+              entry point is hidden, so restoring it is this block plus the `ssoConfigured`
+              constant near the top of the component.
+              --------------------------------------------------------------------------------- */}
+          {/*
           <Divider sx={{ my: 3.5, color: 'text.disabled', fontSize: 12 }}>or</Divider>
 
           <Button
@@ -221,6 +240,7 @@ export default function LoginPage() {
               Single sign-on is not configured for this environment.
             </Typography>
           )}
+          */}
         </Box>
       </Box>
     </Box>
